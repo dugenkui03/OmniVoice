@@ -44,6 +44,8 @@ DEFAULT_HEIGHT = 1920
 DEFAULT_FPS = 25
 MIN_VISUAL_SEGMENT_SEC = 6.0
 MAX_VISUAL_SEGMENT_SEC = 12.0
+VIDEO_TOP_MARGIN = 96
+LAYOUT_VERTICAL_SHIFT = VIDEO_TOP_MARGIN
 CJK_FONT_CANDIDATES = (
     Path("/System/Library/Fonts/Hiragino Sans GB.ttc"),
     Path("/System/Library/Fonts/STHeiti Medium.ttc"),
@@ -110,6 +112,16 @@ class EffectEvent:
     start_sec: float
     end_sec: float
     priority: int
+
+
+@dataclass(frozen=True)
+class VocabDisplayWindow:
+    """Store the time range where one vocabulary card should stay visible."""
+
+    segment_id: str
+    vocab_word: str
+    start_sec: float
+    end_sec: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -438,6 +450,38 @@ def build_visual_plan(
     return visual_segments, caption_events
 
 
+def build_vocab_display_windows(visual_segments: list[VisualSegment]) -> list[VocabDisplayWindow]:
+    """Extend each word card until the next word card or the end of the vocab block."""
+
+    windows: list[VocabDisplayWindow] = []
+    vocab_types = {"vocab_card", "vocab_intro"}
+
+    for index, segment in enumerate(visual_segments):
+        if segment.visual_type != "vocab_card" or not segment.vocab_word:
+            continue
+
+        end_sec = segment.podcast_end_sec
+        for next_segment in visual_segments[index + 1 :]:
+            if next_segment.visual_type == "vocab_card":
+                end_sec = next_segment.podcast_start_sec
+                break
+            if next_segment.visual_type not in vocab_types:
+                end_sec = next_segment.podcast_start_sec
+                break
+            end_sec = next_segment.podcast_end_sec
+
+        windows.append(
+            VocabDisplayWindow(
+                segment_id=segment.segment_id,
+                vocab_word=segment.vocab_word,
+                start_sec=segment.podcast_start_sec,
+                end_sec=round(max(segment.podcast_start_sec + 0.4, end_sec), 3),
+            )
+        )
+
+    return windows
+
+
 def load_effects_plan(path: Path | None) -> dict[str, Any]:
     """Load the optional sticker/effect plan used by the overlay renderer."""
 
@@ -603,6 +647,7 @@ def write_ass_file(
     ass_path: Path,
     timeline: list[PodcastLineTiming],
     visual_segments: list[VisualSegment],
+    vocab_display_windows: list[VocabDisplayWindow],
     analysis: dict[str, Any],
     duration_sec: float,
 ) -> None:
@@ -646,15 +691,16 @@ def write_ass_file(
             f"Dialogue: 3,{ass_time(gag_start)},{ass_time(gag_end)},Gag,,0,0,0,,"
             f"{ass_escape(segment.gag_text)}"
         )
-        if segment.visual_type == "vocab_card" and segment.vocab_word:
-            card = vocab_by_word.get(segment.vocab_word)
-            if card:
-                vocab_text = build_vocab_overlay_text(card)
-                lines.append(
-                    f"Dialogue: 4,{ass_time(segment.podcast_start_sec + 0.6)},"
-                    f"{ass_time(segment.podcast_end_sec - 0.4)},Vocab,,0,0,0,,"
-                    f"{{\\pos(540,1110)}}{ass_escape(vocab_text)}"
-                )
+
+    for window in vocab_display_windows:
+        card = vocab_by_word.get(window.vocab_word)
+        if card:
+            vocab_text = build_vocab_overlay_text(card)
+            lines.append(
+                f"Dialogue: 4,{ass_time(window.start_sec + 0.6)},"
+                f"{ass_time(window.end_sec - 0.4)},Vocab,,0,0,0,,"
+                f"{{\\pos(540,1110)}}{ass_escape(vocab_text)}"
+            )
 
     for line in timeline:
         speaker_label = f"{line.speaker}："
@@ -701,7 +747,7 @@ def video_frame_layout(width: int) -> tuple[int, int, int, int]:
     frame_width = int(round((width * 0.87) / 2) * 2)
     frame_height = video_frame_height_for_width(frame_width)
     frame_x = (width - frame_width) // 2
-    frame_y = 96
+    frame_y = VIDEO_TOP_MARGIN + LAYOUT_VERTICAL_SHIFT
     return frame_x, frame_y, frame_width, frame_height
 
 
@@ -922,6 +968,15 @@ def active_segment_at(t: float, visual_segments: list[VisualSegment]) -> VisualS
     return visual_segments[-1] if visual_segments else None
 
 
+def active_vocab_word_at(t: float, vocab_display_windows: list[VocabDisplayWindow]) -> str | None:
+    """Return the vocabulary word whose card should be visible at timestamp t."""
+
+    for window in vocab_display_windows:
+        if window.start_sec <= t < window.end_sec:
+            return window.vocab_word
+    return None
+
+
 def active_effect_events(t: float, effect_events: list[EffectEvent]) -> list[EffectEvent]:
     """Return all sticker/effect events active at timestamp t."""
 
@@ -1054,16 +1109,16 @@ def draw_gag(
 def draw_vocab_card(
     draw: ImageDraw.ImageDraw,
     fonts: dict[str, ImageFont.FreeTypeFont],
-    segment: VisualSegment,
+    vocab_word: str | None,
     vocab_by_word: dict[str, dict[str, Any]],
     width: int,
     top_y: int,
 ) -> None:
     """Draw a centered vocabulary card when the visual segment is a word explainer."""
 
-    if segment.visual_type != "vocab_card" or not segment.vocab_word:
+    if not vocab_word:
         return
-    card = vocab_by_word.get(segment.vocab_word)
+    card = vocab_by_word.get(vocab_word)
     if not card:
         return
 
@@ -1235,6 +1290,7 @@ def render_overlay_frame(
     t: float,
     timeline: list[PodcastLineTiming],
     visual_segments: list[VisualSegment],
+    vocab_display_windows: list[VocabDisplayWindow],
     effect_events: list[EffectEvent],
     vocab_by_word: dict[str, dict[str, Any]],
     fonts: dict[str, ImageFont.FreeTypeFont],
@@ -1247,6 +1303,7 @@ def render_overlay_frame(
     draw = ImageDraw.Draw(image)
     line = active_line_at(t, timeline)
     segment = active_segment_at(t, visual_segments)
+    vocab_word = active_vocab_word_at(t, vocab_display_windows)
     _, video_y, _, video_height = video_frame_layout(width)
     speaker_y = video_y + video_height + 26
     caption_y = speaker_y + 86
@@ -1257,7 +1314,7 @@ def render_overlay_frame(
     draw_speaker_badges(draw, fonts, line.speaker if line else None, speaker_y)
     if segment:
         draw_gag(draw, fonts, segment, t, width, gag_y)
-        draw_vocab_card(draw, fonts, segment, vocab_by_word, width, vocab_y)
+    draw_vocab_card(draw, fonts, vocab_word, vocab_by_word, width, vocab_y)
     draw_caption(draw, fonts, line, width, caption_y)
     for event in active_effect_events(t, effect_events):
         draw_effect_event(draw, fonts, event, width, caption_y, vocab_y)
@@ -1268,6 +1325,7 @@ def render_overlay_video(
     output_path: Path,
     timeline: list[PodcastLineTiming],
     visual_segments: list[VisualSegment],
+    vocab_display_windows: list[VocabDisplayWindow],
     effect_events: list[EffectEvent],
     analysis: dict[str, Any],
     width: int,
@@ -1325,6 +1383,7 @@ def render_overlay_video(
                 frame_time,
                 timeline,
                 visual_segments,
+                vocab_display_windows,
                 effect_events,
                 vocab_by_word,
                 fonts,
@@ -1346,6 +1405,7 @@ def render_overlay_video(
 def render_video(
     visual_segments: list[VisualSegment],
     timeline: list[PodcastLineTiming],
+    vocab_display_windows: list[VocabDisplayWindow],
     effect_events: list[EffectEvent],
     analysis: dict[str, Any],
     source_video: Path,
@@ -1388,6 +1448,7 @@ def render_video(
         overlay_video,
         timeline,
         visual_segments,
+        vocab_display_windows,
         effect_events,
         analysis,
         args.width,
@@ -1415,6 +1476,7 @@ def write_readme(path: Path, final_path: Path, visual_segments: list[VisualSegme
 - 视觉段落：{len(visual_segments)}
 - 视觉方案：`visual_plan.json`
 - 效果事件：`visual_plan.json` 中的 `effect_events`
+- 单词展示窗口：`visual_plan.json` 中的 `vocab_display_windows`
 - 字幕参考：`podcast_overlays.ass`
 - 透明字幕视频：`podcast_overlay.mov`
 
@@ -1459,6 +1521,7 @@ def main() -> None:
     timeline = build_podcast_timeline(args.podcast_dir, args.max_duration)
     analysis = read_json(args.analysis_json)
     visual_segments, caption_events = build_visual_plan(timeline, analysis, video_duration_sec)
+    vocab_display_windows = build_vocab_display_windows(visual_segments)
     effects_plan = load_effects_plan(args.effects_plan)
     effect_events = resolve_effect_events(effects_plan, timeline, visual_segments)
     final_duration_sec = visual_segments[-1].podcast_end_sec
@@ -1474,15 +1537,27 @@ def main() -> None:
         "duration_sec": round(final_duration_sec, 3),
         "effects_plan": str(args.effects_plan) if args.effects_plan else None,
         "visual_segments": [asdict(segment) for segment in visual_segments],
+        "vocab_display_windows": [asdict(window) for window in vocab_display_windows],
         "caption_events": caption_events,
         "effect_events": [asdict(event) for event in effect_events],
     }
     write_json(output_dir / "visual_plan.json", visual_plan)
 
     ass_path = output_dir / "podcast_overlays.ass"
-    write_ass_file(ass_path, timeline, visual_segments, analysis, final_duration_sec)
+    write_ass_file(ass_path, timeline, visual_segments, vocab_display_windows, analysis, final_duration_sec)
 
-    final_path = render_video(visual_segments, timeline, effect_events, analysis, args.source_video, audio_path, ass_path, output_dir, args)
+    final_path = render_video(
+        visual_segments,
+        timeline,
+        vocab_display_windows,
+        effect_events,
+        analysis,
+        args.source_video,
+        audio_path,
+        ass_path,
+        output_dir,
+        args,
+    )
     write_readme(output_dir / "README.md", final_path, visual_segments, final_duration_sec)
     logging.info("Wrote podcast video: %s", final_path)
 

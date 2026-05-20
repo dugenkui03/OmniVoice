@@ -44,6 +44,8 @@ python3 projects/podcast/make_podcast_video.py \
 
 贴纸和标签效果配置在 `effects_plan.json`。详细说明见 `video_generation_guide.md`。
 
+当前视频版式会保留顶部安全距，并把圆角视频、说话人、台词卡和单词卡作为一个整体下移。单词卡会写入 `visual_plan.json` 的 `vocab_display_windows`，展示时间会延续到下一个单词卡或非生词段出现。
+
 ## 运行方式
 
 先在 OmniVoice 仓库根目录执行：
