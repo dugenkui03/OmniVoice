@@ -1,0 +1,112 @@
+# Podcast Video Generation Guide
+
+这份文档记录“甄嬛播客”从音频变成竖屏短视频的可复用流程。核心原则是：音频是主时间轴，原剧画面、台词卡、单词卡和贴纸效果都跟随音频时间轴渲染。
+
+## 总流程
+
+```mermaid
+flowchart LR
+  A["播客音频<br/>zhenhuan_e11_down_podcast.wav"] --> C["make_podcast_video.py"]
+  B["podcast_lines.json + timing.tsv"] --> C
+  D["ep11_analysis.json"] --> C
+  E["effects_plan.json"] --> C
+  F["原剧视频"] --> C
+  C --> G["visual_plan.json"]
+  C --> H["base_visuals.mp4"]
+  C --> I["podcast_overlay.mov"]
+  H --> J["最终 MP4"]
+  I --> J
+  A --> J
+```
+
+## 已落到代码里的步骤
+
+`make_podcast_video.py` 已经实现这些步骤：
+
+- 读取 `podcast_lines.json` 和 `timing.tsv`，累加生成每句播客的开始/结束时间。
+- 读取 `ep11_analysis.json`，用原剧台词时间戳为播客段落匹配画面。
+- 按 `6-12` 秒把播客台词分成视觉段落，写入 `visual_plan.json`。
+- 用 FFmpeg 生成竖屏基础视频：模糊背景 + 上方小尺寸原剧画面。
+- 用 Pillow 逐帧生成透明 UI 层：圆角视频遮罩、说话人条、台词卡、单词卡、贴纸标签。
+- 用 FFmpeg overlay 合成透明 UI 层和播客音频，输出最终 MP4。
+
+## 贴纸效果配置
+
+贴纸效果写在 `effects_plan.json`，不是写死在代码里。每条规则可以通过 `line_ids` 绑定播客台词，或通过 `visual_types` 绑定视觉段落类型。
+
+```json
+{
+  "id": "report_plan",
+  "effect_type": "sticker_label",
+  "line_ids": ["008"],
+  "text": "带方案来汇报",
+  "icon": "doc",
+  "style": "gold",
+  "position": "video_top_right",
+  "duration_sec": 4.0
+}
+```
+
+支持的内置图标：
+
+- `mic`：开麦/播客现场。
+- `book`：单词/知识点。
+- `doc`：方案、PPT、汇报。
+- `shield`：证据、权限、保全。
+- `seat`：赐座、解锁。
+- `spark`：默认强调贴纸。
+
+支持的位置：
+
+- `video_top_left`
+- `video_top_right`
+- `video_bottom_right`
+- `caption_top_right`
+- `vocab_top_right`
+
+支持的颜色风格：
+
+- `gold`：知识点、重点解释。
+- `pink`：华妃、戏剧张力、包袱。
+- `slate`：播客现场、提示标签。
+
+## 运行命令
+
+150 秒预览：
+
+```bash
+python3 projects/podcast/make_podcast_video.py \
+  --max-duration 150 \
+  --run-name zhenhuan_e11_down_video_preview \
+  --overwrite \
+  --keep-segments
+```
+
+完整渲染：
+
+```bash
+python3 projects/podcast/make_podcast_video.py \
+  --run-name zhenhuan_e11_down_video_full \
+  --overwrite
+```
+
+指定另一份效果计划：
+
+```bash
+python3 projects/podcast/make_podcast_video.py \
+  --effects-plan projects/podcast/effects_plan.json \
+  --run-name zhenhuan_e11_down_video_with_effects \
+  --overwrite
+```
+
+## FFmpeg 与 Pillow 的分工
+
+```mermaid
+flowchart TD
+  A["FFmpeg"] --> B["裁切/缩放/模糊背景/拼接/合成音频"]
+  C["Pillow"] --> D["字体排版/圆角遮罩/卡片/贴纸/矢量小图标"]
+  B --> E["最终视频"]
+  D --> E
+```
+
+本机 FFmpeg 当前没有 `ass`、`subtitles`、`drawtext` 滤镜，所以字幕和贴纸不走 FFmpeg 原生文字滤镜，而是由 Pillow 生成透明视频层。这种方式速度稍慢，但布局能力更强，也更接近剪映那种卡片/贴纸叠层。

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "description": "甄嬛播客短视频贴纸/标签效果计划。line_ids 跟随 podcast_lines.json，visual_types 跟随 visual_plan.json。",
+  "effects": [
+    {
+      "id": "open_mic",
+      "effect_type": "sticker_label",
+      "line_ids": ["001"],
+      "text": "开麦",
+      "icon": "mic",
+      "style": "slate",
+      "position": "video_top_left",
+      "duration_sec": 3.5,
+      "priority": 10
+    },
+    {
+      "id": "report_plan",
+      "effect_type": "sticker_label",
+      "line_ids": ["008"],
+      "text": "带方案来汇报",
+      "icon": "doc",
+      "style": "gold",
+      "position": "video_top_right",
+      "duration_sec": 4.0,
+      "priority": 20
+    },
+    {
+      "id": "admin_permission",
+      "effect_type": "sticker_label",
+      "line_ids": ["010", "011"],
+      "text": "权限被撤",
+      "icon": "shield",
+      "style": "pink",
+      "position": "video_bottom_right",
+      "duration_sec": 4.2,
+      "priority": 20
+    },
+    {
+      "id": "evidence_chain",
+      "effect_type": "sticker_label",
+      "line_ids": ["017", "018", "019"],
+      "text": "证据链先行",
+      "icon": "shield",
+      "style": "gold",
+      "position": "caption_top_right",
+      "duration_sec": 4.5,
+      "priority": 30
+    },
+    {
+      "id": "seat_unlock",
+      "effect_type": "sticker_label",
+      "line_ids": ["025", "046"],
+      "text": "赐座解锁",
+      "icon": "seat",
+      "style": "pink",
+      "position": "video_bottom_right",
+      "duration_sec": 4.0,
+      "priority": 25
+    },
+    {
+      "id": "vocab_listen",
+      "effect_type": "sticker_label",
+      "visual_types": ["vocab_card"],
+      "text": "台词精听",
+      "icon": "book",
+      "style": "gold",
+      "position": "vocab_top_right",
+      "duration_sec": 3.8,
+      "priority": 40
+    }
+  ]
+}

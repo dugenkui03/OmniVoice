@@ -16,6 +16,34 @@ flowchart LR
     C --> I["脚本与 timing 报告"]
 ```
 
+## 视频化链路
+
+播客视频由 `make_podcast_video.py` 生成。视频画面、说话人、台词卡、单词卡和贴纸效果都已经落到代码和配置里，后续复用时不需要依赖手工操作。
+
+```mermaid
+flowchart LR
+    A["播客 WAV/MP3"] --> D["make_podcast_video.py"]
+    B["podcast_lines.json + timing.tsv"] --> D
+    C["原剧视频 + ep11_analysis.json"] --> D
+    E["effects_plan.json"] --> D
+    D --> F["visual_plan.json"]
+    D --> G["base_visuals.mp4"]
+    D --> H["podcast_overlay.mov"]
+    G --> I["最终竖屏 MP4"]
+    H --> I
+    A --> I
+```
+
+常用命令：
+
+```bash
+python3 projects/podcast/make_podcast_video.py \
+  --run-name zhenhuan_e11_down_video_full \
+  --overwrite
+```
+
+贴纸和标签效果配置在 `effects_plan.json`。详细说明见 `video_generation_guide.md`。
+
 ## 运行方式
 
 先在 OmniVoice 仓库根目录执行：

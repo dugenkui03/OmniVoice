@@ -38,6 +38,7 @@ DEFAULT_ANALYSIS_JSON = Path(
     "episode_analyses/ep11_analysis.json"
 )
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "output" / "podcast_video"
+DEFAULT_EFFECTS_PLAN = Path(__file__).with_name("effects_plan.json")
 DEFAULT_WIDTH = 1080
 DEFAULT_HEIGHT = 1920
 DEFAULT_FPS = 25
@@ -96,6 +97,21 @@ class VisualSegment:
         return max(0.0, self.podcast_end_sec - self.podcast_start_sec)
 
 
+@dataclass(frozen=True)
+class EffectEvent:
+    """Store one resolved sticker/effect event on the podcast timeline."""
+
+    effect_id: str
+    effect_type: str
+    text: str
+    icon: str
+    style: str
+    position: str
+    start_sec: float
+    end_sec: float
+    priority: int
+
+
 def parse_args() -> argparse.Namespace:
     """Parse CLI options for preview and full video generation."""
 
@@ -112,6 +128,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--height", type=int, default=DEFAULT_HEIGHT)
     parser.add_argument("--fps", type=int, default=DEFAULT_FPS)
     parser.add_argument("--crf", type=int, default=21, help="Final H.264 quality; lower is larger/better.")
+    parser.add_argument(
+        "--effects-plan",
+        type=Path,
+        default=DEFAULT_EFFECTS_PLAN,
+        help="JSON file that describes sticker/callout effects for the overlay layer.",
+    )
     parser.add_argument("--keep-segments", action="store_true", help="Keep rendered segment MP4 files.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite files in an existing run folder.")
     return parser.parse_args()
@@ -414,6 +436,102 @@ def build_visual_plan(
 
     caption_events = [asdict(line) for line in timeline]
     return visual_segments, caption_events
+
+
+def load_effects_plan(path: Path | None) -> dict[str, Any]:
+    """Load the optional sticker/effect plan used by the overlay renderer."""
+
+    if path is None or not path.exists():
+        return {"version": 1, "effects": []}
+    plan = read_json(path)
+    if not isinstance(plan, dict):
+        raise ValueError(f"Effects plan must be a JSON object: {path}")
+    effects = plan.get("effects", [])
+    if not isinstance(effects, list):
+        raise ValueError(f"Effects plan field 'effects' must be a list: {path}")
+    return plan
+
+
+def resolve_effect_events(
+    effects_plan: dict[str, Any],
+    timeline: list[PodcastLineTiming],
+    visual_segments: list[VisualSegment],
+) -> list[EffectEvent]:
+    """Resolve declarative effect rules into concrete timeline events."""
+
+    line_by_id = {line.line_id: line for line in timeline}
+    events: list[EffectEvent] = []
+
+    for raw_effect in effects_plan.get("effects", []):
+        if not isinstance(raw_effect, dict):
+            continue
+        base = normalize_effect_rule(raw_effect)
+        line_ids = [str(line_id) for line_id in raw_effect.get("line_ids", [])]
+        visual_types = [str(visual_type) for visual_type in raw_effect.get("visual_types", [])]
+
+        if line_ids:
+            matched_lines = [line_by_id[line_id] for line_id in line_ids if line_id in line_by_id]
+            if matched_lines:
+                events.append(event_from_lines(base, matched_lines))
+
+        for segment in visual_segments:
+            if visual_types and segment.visual_type in visual_types:
+                events.append(event_from_segment(base, segment))
+
+    return sorted(events, key=lambda event: (event.start_sec, event.priority, event.effect_id))
+
+
+def normalize_effect_rule(raw_effect: dict[str, Any]) -> dict[str, Any]:
+    """Fill defaults for one effect rule before timeline resolution."""
+
+    return {
+        "effect_id": str(raw_effect.get("id", "effect")),
+        "effect_type": str(raw_effect.get("effect_type", "sticker_label")),
+        "text": str(raw_effect.get("text", "")),
+        "icon": str(raw_effect.get("icon", "spark")),
+        "style": str(raw_effect.get("style", "gold")),
+        "position": str(raw_effect.get("position", "video_top_right")),
+        "duration_sec": float(raw_effect.get("duration_sec", 3.8)),
+        "offset_sec": float(raw_effect.get("offset_sec", 0.0)),
+        "priority": int(raw_effect.get("priority", 50)),
+    }
+
+
+def event_from_lines(base: dict[str, Any], lines: list[PodcastLineTiming]) -> EffectEvent:
+    """Create an effect event from one or more podcast line timings."""
+
+    start_sec = max(0.0, min(line.start_sec for line in lines) + base["offset_sec"])
+    natural_end = max(line.end_sec for line in lines)
+    end_sec = min(natural_end, start_sec + base["duration_sec"])
+    return EffectEvent(
+        effect_id=base["effect_id"],
+        effect_type=base["effect_type"],
+        text=base["text"],
+        icon=base["icon"],
+        style=base["style"],
+        position=base["position"],
+        start_sec=round(start_sec, 3),
+        end_sec=round(max(start_sec + 0.4, end_sec), 3),
+        priority=base["priority"],
+    )
+
+
+def event_from_segment(base: dict[str, Any], segment: VisualSegment) -> EffectEvent:
+    """Create an effect event that follows a visual segment."""
+
+    start_sec = max(0.0, segment.podcast_start_sec + base["offset_sec"])
+    end_sec = min(segment.podcast_end_sec, start_sec + base["duration_sec"])
+    return EffectEvent(
+        effect_id=f"{base['effect_id']}_{segment.segment_id}",
+        effect_type=base["effect_type"],
+        text=base["text"],
+        icon=base["icon"],
+        style=base["style"],
+        position=base["position"],
+        start_sec=round(start_sec, 3),
+        end_sec=round(max(start_sec + 0.4, end_sec), 3),
+        priority=base["priority"],
+    )
 
 
 def build_overlay_hint(lines: list[PodcastLineTiming], vocab_card: dict[str, Any] | None, gag_text: str) -> str:
@@ -804,6 +922,12 @@ def active_segment_at(t: float, visual_segments: list[VisualSegment]) -> VisualS
     return visual_segments[-1] if visual_segments else None
 
 
+def active_effect_events(t: float, effect_events: list[EffectEvent]) -> list[EffectEvent]:
+    """Return all sticker/effect events active at timestamp t."""
+
+    return [event for event in effect_events if event.start_sec <= t < event.end_sec]
+
+
 def speaker_color(speaker: str) -> tuple[int, int, int, int]:
     """Return the accent color used for the active speaker."""
 
@@ -822,6 +946,32 @@ def speaker_fill_color(speaker: str) -> tuple[int, int, int, int]:
     if speaker == "曹贵人":
         return (255, 248, 221, 230)
     return (246, 246, 250, 230)
+
+
+def effect_palette(style: str) -> dict[str, tuple[int, int, int, int]]:
+    """Return color tokens for a sticker/effect style."""
+
+    palettes = {
+        "gold": {
+            "fill": (24, 19, 10, 222),
+            "outline": (255, 218, 92, 230),
+            "text": (255, 232, 126, 255),
+            "icon": (255, 232, 126, 255),
+        },
+        "pink": {
+            "fill": (30, 8, 22, 222),
+            "outline": (255, 122, 190, 230),
+            "text": (255, 176, 218, 255),
+            "icon": (255, 126, 195, 255),
+        },
+        "slate": {
+            "fill": (12, 14, 20, 218),
+            "outline": (215, 218, 232, 170),
+            "text": (244, 244, 248, 255),
+            "icon": (225, 226, 238, 255),
+        },
+    }
+    return palettes.get(style, palettes["gold"])
 
 
 def draw_title(draw: ImageDraw.ImageDraw, fonts: dict[str, ImageFont.FreeTypeFont], width: int) -> None:
@@ -966,6 +1116,92 @@ def draw_dashed_line(
         x += dash + gap
 
 
+def draw_icon(
+    draw: ImageDraw.ImageDraw,
+    icon: str,
+    center: tuple[int, int],
+    size: int,
+    fill: tuple[int, int, int, int],
+) -> None:
+    """Draw a small vector-like icon without relying on external assets."""
+
+    cx, cy = center
+    half = size // 2
+    if icon == "book":
+        draw.rounded_rectangle((cx - half, cy - half, cx, cy + half), radius=4, outline=fill, width=3)
+        draw.rounded_rectangle((cx, cy - half, cx + half, cy + half), radius=4, outline=fill, width=3)
+        draw.line((cx, cy - half + 4, cx, cy + half - 4), fill=fill, width=2)
+    elif icon == "mic":
+        draw.rounded_rectangle((cx - 9, cy - half, cx + 9, cy + 6), radius=9, outline=fill, width=3)
+        draw.arc((cx - 20, cy - 4, cx + 20, cy + 28), 0, 180, fill=fill, width=3)
+        draw.line((cx, cy + 18, cx, cy + half), fill=fill, width=3)
+        draw.line((cx - 14, cy + half, cx + 14, cy + half), fill=fill, width=3)
+    elif icon == "shield":
+        points = [(cx, cy - half), (cx + half, cy - half + 12), (cx + half - 6, cy + half - 4), (cx, cy + half), (cx - half + 6, cy + half - 4), (cx - half, cy - half + 12)]
+        draw.line(points + [points[0]], fill=fill, width=3)
+        draw.line((cx - 10, cy, cx - 2, cy + 8, cx + 13, cy - 10), fill=fill, width=3)
+    elif icon == "doc":
+        draw.rounded_rectangle((cx - half + 4, cy - half, cx + half - 4, cy + half), radius=5, outline=fill, width=3)
+        draw.line((cx - 10, cy - 7, cx + 12, cy - 7), fill=fill, width=2)
+        draw.line((cx - 10, cy + 5, cx + 12, cy + 5), fill=fill, width=2)
+    elif icon == "seat":
+        draw.arc((cx - half, cy - half, cx + half, cy + half), 200, 340, fill=fill, width=3)
+        draw.line((cx - 16, cy + 8, cx + 16, cy + 8), fill=fill, width=3)
+        draw.line((cx - 11, cy + 8, cx - 16, cy + half), fill=fill, width=3)
+        draw.line((cx + 11, cy + 8, cx + 16, cy + half), fill=fill, width=3)
+    else:
+        draw.line((cx, cy - half, cx, cy + half), fill=fill, width=3)
+        draw.line((cx - half, cy, cx + half, cy), fill=fill, width=3)
+        draw.line((cx - 13, cy - 13, cx + 13, cy + 13), fill=fill, width=2)
+        draw.line((cx + 13, cy - 13, cx - 13, cy + 13), fill=fill, width=2)
+
+
+def effect_position_box(
+    event: EffectEvent,
+    text_width: int,
+    width: int,
+    caption_y: int,
+    vocab_y: int,
+) -> tuple[int, int, int, int]:
+    """Return the rounded label box for an effect based on its named position."""
+
+    frame_x, frame_y, frame_width, frame_height = video_frame_layout(width)
+    box_width = min(width - 120, max(170, text_width + 92))
+    box_height = 58
+    if event.position == "video_top_left":
+        x1, y1 = frame_x + 22, frame_y + 18
+    elif event.position == "video_top_right":
+        x1, y1 = frame_x + frame_width - box_width - 22, frame_y + 18
+    elif event.position == "video_bottom_right":
+        x1, y1 = frame_x + frame_width - box_width - 22, frame_y + frame_height - box_height - 20
+    elif event.position == "caption_top_right":
+        x1, y1 = width - box_width - 78, caption_y - 68
+    elif event.position == "vocab_top_right":
+        x1, y1 = width - box_width - 92, vocab_y + 26
+    else:
+        x1, y1 = width - box_width - 78, caption_y + 188
+    return (x1, y1, x1 + box_width, y1 + box_height)
+
+
+def draw_effect_event(
+    draw: ImageDraw.ImageDraw,
+    fonts: dict[str, ImageFont.FreeTypeFont],
+    event: EffectEvent,
+    width: int,
+    caption_y: int,
+    vocab_y: int,
+) -> None:
+    """Draw one sticker-like effect label on top of the UI layer."""
+
+    palette = effect_palette(event.style)
+    text_width, _ = text_size(draw, event.text, fonts["effect"])
+    x1, y1, x2, y2 = effect_position_box(event, text_width, width, caption_y, vocab_y)
+    draw.rounded_rectangle((x1 + 5, y1 + 5, x2 + 5, y2 + 5), radius=24, fill=(0, 0, 0, 80))
+    draw.rounded_rectangle((x1, y1, x2, y2), radius=24, fill=palette["fill"], outline=palette["outline"], width=2)
+    draw_icon(draw, event.icon, (x1 + 32, y1 + 29), 30, palette["icon"])
+    draw.text((x1 + 62, y1 + 13), event.text, font=fonts["effect"], fill=palette["text"])
+
+
 def draw_caption(
     draw: ImageDraw.ImageDraw,
     fonts: dict[str, ImageFont.FreeTypeFont],
@@ -999,6 +1235,7 @@ def render_overlay_frame(
     t: float,
     timeline: list[PodcastLineTiming],
     visual_segments: list[VisualSegment],
+    effect_events: list[EffectEvent],
     vocab_by_word: dict[str, dict[str, Any]],
     fonts: dict[str, ImageFont.FreeTypeFont],
     width: int,
@@ -1022,6 +1259,8 @@ def render_overlay_frame(
         draw_gag(draw, fonts, segment, t, width, gag_y)
         draw_vocab_card(draw, fonts, segment, vocab_by_word, width, vocab_y)
     draw_caption(draw, fonts, line, width, caption_y)
+    for event in active_effect_events(t, effect_events):
+        draw_effect_event(draw, fonts, event, width, caption_y, vocab_y)
     return image
 
 
@@ -1029,6 +1268,7 @@ def render_overlay_video(
     output_path: Path,
     timeline: list[PodcastLineTiming],
     visual_segments: list[VisualSegment],
+    effect_events: list[EffectEvent],
     analysis: dict[str, Any],
     width: int,
     height: int,
@@ -1047,6 +1287,7 @@ def render_overlay_video(
         "small": load_font(font_path, 28),
         "caption": load_font(font_path, 45),
         "body": load_font(font_path, 32),
+        "effect": load_font(font_path, 30),
         "label": load_font(font_path, 31),
         "meaning": load_font(font_path, 35),
         "word": load_font(font_path, 78),
@@ -1084,6 +1325,7 @@ def render_overlay_video(
                 frame_time,
                 timeline,
                 visual_segments,
+                effect_events,
                 vocab_by_word,
                 fonts,
                 width,
@@ -1104,6 +1346,7 @@ def render_overlay_video(
 def render_video(
     visual_segments: list[VisualSegment],
     timeline: list[PodcastLineTiming],
+    effect_events: list[EffectEvent],
     analysis: dict[str, Any],
     source_video: Path,
     audio_path: Path,
@@ -1145,6 +1388,7 @@ def render_video(
         overlay_video,
         timeline,
         visual_segments,
+        effect_events,
         analysis,
         args.width,
         args.height,
@@ -1170,6 +1414,7 @@ def write_readme(path: Path, final_path: Path, visual_segments: list[VisualSegme
 - 时长：{duration_sec:.2f}s
 - 视觉段落：{len(visual_segments)}
 - 视觉方案：`visual_plan.json`
+- 效果事件：`visual_plan.json` 中的 `effect_events`
 - 字幕参考：`podcast_overlays.ass`
 - 透明字幕视频：`podcast_overlay.mov`
 
@@ -1177,7 +1422,8 @@ def write_readme(path: Path, final_path: Path, visual_segments: list[VisualSegme
 flowchart LR
   A["播客音频"] --> B["视觉段落"]
   C["原剧视频"] --> B
-  D["ASS 字幕/词卡"] --> E["最终 MP4"]
+  D["Pillow UI/词卡/贴纸"] --> E["最终 MP4"]
+  F["effects_plan.json"] --> D
   B --> E
 ```
 """
@@ -1213,6 +1459,8 @@ def main() -> None:
     timeline = build_podcast_timeline(args.podcast_dir, args.max_duration)
     analysis = read_json(args.analysis_json)
     visual_segments, caption_events = build_visual_plan(timeline, analysis, video_duration_sec)
+    effects_plan = load_effects_plan(args.effects_plan)
+    effect_events = resolve_effect_events(effects_plan, timeline, visual_segments)
     final_duration_sec = visual_segments[-1].podcast_end_sec
 
     visual_plan = {
@@ -1224,15 +1472,17 @@ def main() -> None:
         "height": args.height,
         "fps": args.fps,
         "duration_sec": round(final_duration_sec, 3),
+        "effects_plan": str(args.effects_plan) if args.effects_plan else None,
         "visual_segments": [asdict(segment) for segment in visual_segments],
         "caption_events": caption_events,
+        "effect_events": [asdict(event) for event in effect_events],
     }
     write_json(output_dir / "visual_plan.json", visual_plan)
 
     ass_path = output_dir / "podcast_overlays.ass"
     write_ass_file(ass_path, timeline, visual_segments, analysis, final_duration_sec)
 
-    final_path = render_video(visual_segments, timeline, analysis, args.source_video, audio_path, ass_path, output_dir, args)
+    final_path = render_video(visual_segments, timeline, effect_events, analysis, args.source_video, audio_path, ass_path, output_dir, args)
     write_readme(output_dir / "README.md", final_path, visual_segments, final_duration_sec)
     logging.info("Wrote podcast video: %s", final_path)
 
