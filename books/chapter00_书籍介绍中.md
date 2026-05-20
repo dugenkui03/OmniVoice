@@ -35,28 +35,28 @@
 
 ```text
 文本内容：
-character / phoneme / pinyin / BPE
+character（字符） / phoneme（音素） / pinyin（拼音） / BPE（子词切分）
 
 发音结构：
-phoneme, tone, stress, syllable
+phoneme（音素）, tone（声调）, stress（重音）, syllable（音节）
 
 韵律：
-duration, pitch/F0, energy, pause, rhythm
+duration（时长）, pitch/F0（音高/基频）, energy（能量）, pause（停顿）, rhythm（节奏）
 
 说话人 / 音色：
-speaker embedding, d-vector, prompt speech
+speaker embedding（说话人向量）, d-vector（声纹向量）, prompt speech（提示语音）
 
 情绪 / 风格：
-emotion embedding, style embedding, reference encoder, prosody embedding
+emotion embedding（情绪向量）, style embedding（风格向量）, reference encoder（参考编码器）, prosody embedding（韵律向量）
 
 声学表征：
-mel-spectrogram, linear spectrogram, codec latent, acoustic token
+mel-spectrogram（梅尔频谱）, linear spectrogram（线性频谱）, codec latent（编码潜变量）, acoustic token（声学 token）
 
 生成模型：
-autoregressive, non-autoregressive, VAE, flow, GAN, diffusion, flow matching
+autoregressive（自回归）, non-autoregressive（非自回归）, VAE（变分自编码器）, flow（流模型）, GAN（生成对抗网络）, diffusion（扩散模型）, flow matching（流匹配）
 
 工程链路：
-data cleaning → feature extraction → alignment → training → sampling → evaluation → deployment
+data cleaning（数据清洗） → feature extraction（特征提取） → alignment（对齐） → training（训练） → sampling（采样） → evaluation（评测） → deployment（部署）
 ```
 
 一句话总结：
@@ -95,6 +95,7 @@ data cleaning → feature extraction → alignment → training → sampling →
 
 ```text
 books/
+├── TODO_基本原理补充.md
 ├── chapter00_书籍介绍中.md
 ├── chapter01_TTS到底在解决什么问题.md
 ├── chapter02_声音是什么.md

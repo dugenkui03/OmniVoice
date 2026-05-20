@@ -53,7 +53,7 @@ text-audio pair preprocessing
 | 模型类型 | 典型 loss |
 | --- | --- |
 | Tacotron 类 | mel loss, stop token loss |
-| FastSpeech 类 | mel, duration, pitch, energy loss |
+| FastSpeech 类 | mel（梅尔频谱）, duration（时长）, pitch（音高）, energy（能量） loss |
 | VITS 类 | reconstruction, KL, duration, adversarial, feature matching |
 | GAN vocoder | adversarial, feature matching, mel loss |
 | Diffusion TTS | noise prediction / score matching |

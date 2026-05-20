@@ -48,16 +48,16 @@
 
 | 信息 | 常见表示 | 主要控制什么 | 是否容易解耦 |
 | --- | --- | --- | --- |
-| 文本内容 | character / phoneme / pinyin / BPE | 说什么 | 较容易 |
-| 发音 | phoneme / tone / stress | 怎么读 | 较容易 |
-| 时长 | duration | 每个音持续多久 | 中等 |
-| 音高 | F0 / pitch | 语调、音高、部分情绪 | 中等 |
-| 能量 | energy | 音量、力度 | 中等 |
-| 音色 | speaker embedding / prompt speech | 谁在说 | 中等偏难 |
-| 情绪 | emotion embedding / style embedding | 语气、表达方式 | 难 |
-| 风格 | reference encoder / style token | 整体说话方式 | 难 |
-| 声学结果 | mel / latent / codec token | 混合声学信息 | 不解耦 |
-| 波形 | waveform | 最终音频 | 完全混合 |
+| 文本内容 | character（字符） / phoneme（音素） / pinyin（拼音） / BPE（子词切分） | 说什么 | 较容易 |
+| 发音 | phoneme（音素） / tone（声调） / stress（重音） | 怎么读 | 较容易 |
+| 时长 | duration（时长） | 每个音持续多久 | 中等 |
+| 音高 | F0（基频） / pitch（音高） | 语调、音高、部分情绪 | 中等 |
+| 能量 | energy（能量） | 音量、力度 | 中等 |
+| 音色 | speaker embedding（说话人向量） / prompt speech（提示语音） | 谁在说 | 中等偏难 |
+| 情绪 | emotion embedding（情绪向量） / style embedding（风格向量） | 语气、表达方式 | 难 |
+| 风格 | reference encoder（参考编码器） / style token（风格 token） | 整体说话方式 | 难 |
+| 声学结果 | mel（梅尔频谱） / latent（潜变量） / codec token（语音编码 token） | 混合声学信息 | 不解耦 |
+| 波形 | waveform（波形） | 最终音频 | 完全混合 |
 
 最重要的一句话：
 

@@ -39,6 +39,32 @@ flowchart LR
     F --> G["waveform"]
 ```
 
+每个模块可以先这样理解：
+
+| 模块 | 主要职责 | 常见术语 |
+| --- | --- | --- |
+| 文本 | 用户输入的原始内容，可能包含中文、英文、数字、日期、单位、标点和缩写 | text（文本）, character（字符）, punctuation（标点） |
+| 文本前端 | 把原始文本整理成更适合发音的形式，解决“这个字到底怎么读、哪里停顿”的问题 | text normalization（文本规范化）, word segmentation（分词）, G2P（字音转换）, polyphone disambiguation（多音字消歧） |
+| 音素 / 拼音 / 语言学特征 | 用更接近发音的单位描述文本内容，减少原始文字带来的读音歧义 | phoneme（音素）, pinyin（拼音）, tone（声调）, syllable（音节）, stress（重音）, prosody boundary（韵律边界） |
+| 声学模型 | 根据发音内容和条件信息，预测中间声学表示；它决定“说什么、谁在说、怎么说”的主体结构 | acoustic model（声学模型）, encoder（编码器）, decoder（解码器）, attention（注意力）, duration（时长）, pitch（音高）, energy（能量） |
+| mel / latent / codec token | 模型生成的中间声学表示，比 waveform 更容易建模；它们通常混合了内容、音色、韵律和情绪 | mel-spectrogram（梅尔频谱）, latent（潜变量）, codec token（语音编码 token）, acoustic token（声学 token） |
+| vocoder / decoder | 把中间声学表示还原成可播放的波形；它主要影响音频细节、清晰度和质感 | vocoder（声码器）, neural decoder（神经解码器）, HiFi-GAN（高保真 GAN 声码器）, BigVGAN（大规模 GAN 声码器）, DiffWave（扩散声码器） |
+| waveform | 最终音频波形，也就是播放器真正播放的采样点序列 | waveform（波形）, sample rate（采样率）, amplitude（振幅） |
+
+这里有几个术语先建立直觉即可：
+
+```text
+G2P（字音转换）：grapheme-to-phoneme，把文字或字符转成音素。
+duration（时长）：每个音素、字或 token 持续多久。
+pitch / F0（音高 / 基频）：音高走势，影响语调、情绪和部分说话人特征。
+energy（能量）：能量或音量走势，影响力度和表达强弱。
+mel-spectrogram（梅尔频谱）：常见声学中间表示，比原始波形更适合声学模型预测。
+codec token（语音编码 token）：新一代语音模型常用的压缩语音 token，可以是离散或连续表示。
+vocoder（声码器）：把 mel、latent 或 token 转成 waveform 的波形生成模块。
+```
+
+现代 TTS 模型不一定严格使用这条完整链路。有些模型会弱化文本前端，有些模型不显式预测 mel，有些模型直接生成 codec token 或 latent；但无论结构怎么变化，它们仍然绕不开这几个问题：文本怎么读、语音如何表示、谁在说、怎么说、最后如何变成 waveform。
+
 ## 1.3 两条学习主线
 
 本书按照两条主线组织：
@@ -56,8 +82,8 @@ flowchart LR
 TTS 的核心不是“让模型读字”，而是让模型同时解决四件事：
 
 ```text
-说什么：linguistic content
-怎么读：phoneme / tone / stress
-谁在说：speaker identity / timbre
-怎么说：prosody / emotion / style
+说什么：linguistic content（语言内容）
+怎么读：phoneme（音素） / tone（声调） / stress（重音）
+谁在说：speaker identity（说话人身份） / timbre（音色）
+怎么说：prosody（韵律） / emotion（情绪） / style（风格）
 ```
