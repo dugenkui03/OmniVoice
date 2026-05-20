@@ -53,20 +53,34 @@ flowchart LR
   C --> D["hardly 词卡结束"]
 ```
 
-## 贴纸效果配置
+## 贴纸与大卡效果配置
 
 贴纸效果写在 `effects_plan.json`，不是写死在代码里。每条规则可以通过 `line_ids` 绑定播客台词，或通过 `visual_types` 绑定视觉段落类型。
+
+目前有两种效果：
+
+- `callout_card`：明显的大卡效果，出现在单词卡位置。剧情段还没有单词卡时，用它展示“管理员权限被撤”“证据链先行”等梗点。
+- `sticker_label`：小标签效果，适合贴在视频或单词卡角落，例如“台词精听”。
+
+```mermaid
+flowchart TD
+  A["剧情段"] --> B["callout_card 占用单词卡位置"]
+  B --> C["生词段开始"]
+  C --> D["单词卡替换大卡"]
+  D --> E["sticker_label 标注台词精听"]
+```
 
 ```json
 {
   "id": "report_plan",
-  "effect_type": "sticker_label",
+  "effect_type": "callout_card",
   "line_ids": ["008"],
   "text": "带方案来汇报",
+  "body": "表面请罪，实际像拿着方案开会。",
   "icon": "doc",
   "style": "gold",
-  "position": "video_top_right",
-  "duration_sec": 4.0
+  "position": "vocab_area",
+  "duration_sec": 5.4
 }
 ```
 
@@ -86,6 +100,7 @@ flowchart LR
 - `video_bottom_right`
 - `caption_top_right`
 - `vocab_top_right`
+- `vocab_area`：单词卡所在的大卡区域，主要给 `callout_card` 使用。
 
 支持的颜色风格：
 

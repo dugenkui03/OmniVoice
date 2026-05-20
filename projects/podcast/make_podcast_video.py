@@ -106,6 +106,7 @@ class EffectEvent:
     effect_id: str
     effect_type: str
     text: str
+    body: str
     icon: str
     style: str
     position: str
@@ -532,6 +533,7 @@ def normalize_effect_rule(raw_effect: dict[str, Any]) -> dict[str, Any]:
         "effect_id": str(raw_effect.get("id", "effect")),
         "effect_type": str(raw_effect.get("effect_type", "sticker_label")),
         "text": str(raw_effect.get("text", "")),
+        "body": str(raw_effect.get("body", "")),
         "icon": str(raw_effect.get("icon", "spark")),
         "style": str(raw_effect.get("style", "gold")),
         "position": str(raw_effect.get("position", "video_top_right")),
@@ -551,6 +553,7 @@ def event_from_lines(base: dict[str, Any], lines: list[PodcastLineTiming]) -> Ef
         effect_id=base["effect_id"],
         effect_type=base["effect_type"],
         text=base["text"],
+        body=base["body"],
         icon=base["icon"],
         style=base["style"],
         position=base["position"],
@@ -569,6 +572,7 @@ def event_from_segment(base: dict[str, Any], segment: VisualSegment) -> EffectEv
         effect_id=f"{base['effect_id']}_{segment.segment_id}",
         effect_type=base["effect_type"],
         text=base["text"],
+        body=base["body"],
         icon=base["icon"],
         style=base["style"],
         position=base["position"],
@@ -1029,6 +1033,13 @@ def effect_palette(style: str) -> dict[str, tuple[int, int, int, int]]:
     return palettes.get(style, palettes["gold"])
 
 
+def with_alpha(color: tuple[int, int, int, int], alpha_scale: float) -> tuple[int, int, int, int]:
+    """Return an RGBA color with its alpha multiplied for frame animation."""
+
+    r, g, b, a = color
+    return (r, g, b, max(0, min(255, int(a * alpha_scale))))
+
+
 def draw_title(draw: ImageDraw.ImageDraw, fonts: dict[str, ImageFont.FreeTypeFont], width: int) -> None:
     """Draw the persistent show title and small format label."""
 
@@ -1242,11 +1253,18 @@ def draw_effect_event(
     draw: ImageDraw.ImageDraw,
     fonts: dict[str, ImageFont.FreeTypeFont],
     event: EffectEvent,
+    t: float,
     width: int,
     caption_y: int,
     vocab_y: int,
+    vocab_word: str | None,
 ) -> None:
-    """Draw one sticker-like effect label on top of the UI layer."""
+    """Draw either a small sticker label or a large callout card effect."""
+
+    if event.effect_type == "callout_card":
+        if vocab_word is None:
+            draw_effect_callout_card(draw, fonts, event, t, width, vocab_y)
+        return
 
     palette = effect_palette(event.style)
     text_width, _ = text_size(draw, event.text, fonts["effect"])
@@ -1255,6 +1273,78 @@ def draw_effect_event(
     draw.rounded_rectangle((x1, y1, x2, y2), radius=24, fill=palette["fill"], outline=palette["outline"], width=2)
     draw_icon(draw, event.icon, (x1 + 32, y1 + 29), 30, palette["icon"])
     draw.text((x1 + 62, y1 + 13), event.text, font=fonts["effect"], fill=palette["text"])
+
+
+def draw_effect_callout_card(
+    draw: ImageDraw.ImageDraw,
+    fonts: dict[str, ImageFont.FreeTypeFont],
+    event: EffectEvent,
+    t: float,
+    width: int,
+    top_y: int,
+) -> None:
+    """Draw a prominent animated card in the vocabulary-card area before words appear."""
+
+    palette = effect_palette(event.style)
+    progress = max(0.0, min(1.0, (t - event.start_sec) / 0.45))
+    fade_out = max(0.0, min(1.0, (event.end_sec - t) / 0.35))
+    alpha_scale = min(progress, fade_out)
+    slide_y = int((1.0 - progress) * 38)
+    pulse = 1.0 + 0.012 * math.sin(max(0.0, t - event.start_sec) * math.tau * 2.2)
+
+    x1, y1, x2, y2 = 70, top_y + slide_y, width - 70, top_y + 600 + slide_y
+    center_x = (x1 + x2) // 2
+    inflated = int(8 * pulse)
+    draw.rounded_rectangle(
+        (x1 + 10, y1 + 12, x2 + 10, y2 + 12),
+        radius=34 + inflated,
+        fill=(0, 0, 0, int(96 * alpha_scale)),
+    )
+    draw.rounded_rectangle(
+        (x1, y1, x2, y2),
+        radius=34 + inflated,
+        fill=with_alpha(palette["fill"], alpha_scale),
+        outline=with_alpha(palette["outline"], alpha_scale),
+        width=5,
+    )
+
+    icon_y = y1 + 112
+    draw_icon(draw, event.icon, (center_x, icon_y), 82, with_alpha(palette["icon"], alpha_scale))
+    title_width, _ = text_size(draw, event.text, fonts["effect_title"])
+    draw.text(
+        (center_x - title_width / 2, y1 + 180),
+        event.text,
+        font=fonts["effect_title"],
+        fill=with_alpha(palette["text"], alpha_scale),
+    )
+
+    body = event.body or "这一段是剧情里的重点梗，马上接上台词精听。"
+    wrapped = wrap_text_by_width(draw, body, fonts["effect_body"], x2 - x1 - 140, 3)
+    body_y = y1 + 292
+    for line in wrapped:
+        line_width, _ = text_size(draw, line, fonts["effect_body"])
+        draw.text(
+            (center_x - line_width / 2, body_y),
+            line,
+            font=fonts["effect_body"],
+            fill=(255, 255, 255, int(238 * alpha_scale)),
+        )
+        body_y += 54
+
+    draw.rounded_rectangle(
+        (center_x - 180, y2 - 98, center_x + 180, y2 - 38),
+        radius=26,
+        fill=(255, 255, 255, int(28 * alpha_scale)),
+        outline=with_alpha(palette["outline"], alpha_scale),
+        width=2,
+    )
+    draw_centered_text(
+        draw,
+        (center_x - 180, y2 - 98, center_x + 180, y2 - 38),
+        "马上进入单词小灶",
+        fonts["effect"],
+        with_alpha(palette["text"], alpha_scale),
+    )
 
 
 def draw_caption(
@@ -1317,7 +1407,7 @@ def render_overlay_frame(
     draw_vocab_card(draw, fonts, vocab_word, vocab_by_word, width, vocab_y)
     draw_caption(draw, fonts, line, width, caption_y)
     for event in active_effect_events(t, effect_events):
-        draw_effect_event(draw, fonts, event, width, caption_y, vocab_y)
+        draw_effect_event(draw, fonts, event, t, width, caption_y, vocab_y, vocab_word)
     return image
 
 
@@ -1346,6 +1436,8 @@ def render_overlay_video(
         "caption": load_font(font_path, 45),
         "body": load_font(font_path, 32),
         "effect": load_font(font_path, 30),
+        "effect_title": load_font(font_path, 58),
+        "effect_body": load_font(font_path, 37),
         "label": load_font(font_path, 31),
         "meaning": load_font(font_path, 35),
         "word": load_font(font_path, 78),
