@@ -125,13 +125,20 @@ def main():
 
     args = get_parser().parse_args()
 
+    # 没指定 --device 时按 CUDA > MPS > CPU 自动挑
     device = args.device or get_best_device()
     logging.info(f"Loading model from {args.model} on {device} ...")
+    # 加载 OmniVoice 主模型, 同时会把 text_tokenizer / audio_tokenizer /
+    # duration_estimator 一起准备好 (见 OmniVoice.from_pretrained).
     model = OmniVoice.from_pretrained(
         args.model, device_map=device, dtype=torch.float16
     )
 
     logging.info(f"Generating audio for: {args.text[:80]}...")
+    # 单条生成: 三种模式由参数自动判断
+    #   - 给了 ref_audio  → Voice Cloning
+    #   - 给了 instruct   → Voice Design
+    #   - 都没给          → Auto Voice
     audios = model.generate(
         text=args.text,
         language=args.language,
@@ -150,6 +157,7 @@ def main():
         class_temperature=args.class_temperature,
     )
 
+    # 输出已经是 24kHz 的 1-D ndarray, 直接落盘即可
     sf.write(args.output, audios[0], model.sampling_rate)
     logging.info(f"Saved to {args.output}")
 

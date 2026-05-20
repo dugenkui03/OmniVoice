@@ -89,24 +89,33 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class VoiceClonePrompt:
-    ref_audio_tokens: torch.Tensor  # (C, T)
-    ref_text: str
-    ref_rms: float
+    """Voice Cloning 模式的可复用参考提示。
+
+    由 :meth:`OmniVoice.create_voice_clone_prompt` 构造一次后，
+    可在多次 ``generate()`` 调用中重复使用，避免重复跑 audio_tokenizer.encode。
+    """
+    ref_audio_tokens: torch.Tensor  # 参考音频离散 token, shape = (C=8, T)
+    ref_text: str                   # 参考音频对应的文本(可由 Whisper 自动转写)
+    ref_rms: float                  # 参考音频的 RMS, 用来给输出做音量归一
 
 
 @dataclass
 class OmniVoiceGenerationConfig:
-    num_step: int = 32
-    guidance_scale: float = 2.0
-    t_shift: float = 0.1
-    layer_penalty_factor: float = 5.0
-    position_temperature: float = 5.0
-    class_temperature: float = 0.0
-    denoise: bool = True
-    preprocess_prompt: bool = True
-    postprocess_output: bool = True
-    audio_chunk_duration: float = 15.0
-    audio_chunk_threshold: float = 30.0
+    """生成阶段的解码超参集合.
+
+    这些参数控制 mask-then-fill 迭代解码的行为, 与模型权重无关.
+    """
+    num_step: int = 32              # 迭代解码总步数 (类似 diffusion 的 T)
+    guidance_scale: float = 2.0     # Classifier-Free Guidance 强度, 0 表示关闭
+    t_shift: float = 0.1            # 时间步采样的偏移, 越小越偏向 "先解低 SNR/噪声大" 的位置
+    layer_penalty_factor: float = 5.0   # codebook 层惩罚: 让靠前(语义)的 codebook 先被解出
+    position_temperature: float = 5.0   # 选位置时加在 score 上的 Gumbel 噪声温度
+    class_temperature: float = 0.0      # 选 token id 时的采样温度, 0 = 贪心 argmax
+    denoise: bool = True                # 是否在序列前插入 <|denoise|> 特殊 token
+    preprocess_prompt: bool = True      # 是否对参考音频做去静音/裁剪等预处理
+    postprocess_output: bool = True     # 是否对输出做去静音/淡入淡出
+    audio_chunk_duration: float = 15.0  # 长文本分块时单段目标时长(秒)
+    audio_chunk_threshold: float = 30.0 # 估计音频超过该阈值(秒)才走分块生成
 
     @classmethod
     def from_dict(cls, kwargs_dict):
@@ -213,6 +222,10 @@ class OmniVoice(PreTrainedModel):
             # Otherwise, initialize the LLM from the config.
             self.llm = AutoModel.from_config(self.config.llm_config)
 
+        # 把 8 个 codebook 的 embedding 合到一张大表里:
+        #   行号 = codebook_id * audio_vocab_size + token_id
+        # 这样 8 层 token 共享同一个 nn.Embedding, 又能通过 codebook_layer_offsets
+        # 给不同层加上独立偏移, 保证不冲突.
         self.audio_embeddings = nn.Embedding(
             config.num_audio_codebook * config.audio_vocab_size,
             self.config.llm_config.hidden_size,
@@ -222,12 +235,14 @@ class OmniVoice(PreTrainedModel):
             torch.arange(config.num_audio_codebook) * config.audio_vocab_size,
         )
 
+        # 一次性输出 8 层 codebook 的 logits, 后面 reshape 成 [B, C, T, V]
         self.audio_heads = nn.Linear(
             self.config.llm_config.hidden_size,
             config.num_audio_codebook * config.audio_vocab_size,
             bias=False,
         )
 
+        # 归一化的 codebook 权重: 训练 loss 中越靠后的层权重越小 (语义信息少)
         self.normalized_audio_codebook_weights = [
             w / sum(config.audio_codebook_weights)
             for w in config.audio_codebook_weights
@@ -244,6 +259,70 @@ class OmniVoice(PreTrainedModel):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
+        """加载 OmniVoice 预训练模型 (主干 + 推理所需的全部周边组件).
+
+        本方法在标准 HuggingFace ``PreTrainedModel.from_pretrained`` 之上做了三件事:
+            1. 先把 ``pretrained_model_name_or_path`` 解析成本地路径 (必要时触发 HF Hub 下载),
+               避免父类内部多次重复下载.
+            2. 调父类 ``from_pretrained`` 加载主干权重与 LLM 配置.
+            3. 推理模式 (``train=False``) 下额外装配下列组件, 凑齐端到端 TTS 推理流水线:
+                - ``text_tokenizer``        : 文本分词器
+                - ``audio_tokenizer``       : 音频 ↔ 离散 token 编解码器 (Higgs Audio V2)
+                - ``feature_extractor``     : 音频特征提取器 (供 audio_tokenizer 使用)
+                - ``sampling_rate``         : 采样率 (来自 feature_extractor)
+                - ``duration_estimator``    : 基于字符权重的时长估计器, 推算目标音频帧数
+                - ``_asr_pipe`` (可选)      : Whisper ASR 流水线, 用于自动转写参考音频
+
+        Args:
+            pretrained_model_name_or_path (str | os.PathLike):
+                HuggingFace 模型仓库名 (如 ``"k2-fsa/OmniVoice"``) 或本地目录路径.
+                如果是仓库名且本地缓存不存在, 会触发 HF Hub 下载.
+            *args:
+                透传给父类 ``PreTrainedModel.from_pretrained`` 的位置参数, 通常不用.
+            **kwargs:
+                包含本方法自定义关键字, 其余透传给父类. 自定义关键字:
+
+                - train (bool, 默认 ``False``):
+                    是否以训练模式加载. 训练模式下**不会**加载 text_tokenizer /
+                    audio_tokenizer / duration_estimator 等推理辅助组件, 加载更快、显存更省.
+                    推理 / Demo 场景请保持默认 ``False``.
+                - load_asr (bool, 默认 ``False``):
+                    是否同时加载 Whisper ASR 模型. 仅在用户没有手动提供 ``ref_text``
+                    (参考音频对应的文本) 时需要, 用 ASR 自动转写参考音频得到 ref_text.
+                    仅在 ``train=False`` 时生效.
+                - asr_model_name (str, 默认 ``"openai/whisper-large-v3-turbo"``):
+                    要加载的 Whisper 模型仓库名或本地路径. 仅在 ``load_asr=True`` 时生效.
+
+                其余常见透传 kwargs (由父类处理) 例如:
+
+                - torch_dtype: 权重精度, 如 ``torch.bfloat16`` / ``torch.float16``.
+                - device_map: 设备映射, 如 ``"cuda"`` / ``"auto"`` / ``{"": 0}``.
+                - low_cpu_mem_usage: 是否启用低内存加载.
+                - revision / cache_dir / token: HF Hub 相关参数.
+
+        Returns:
+            OmniVoiceForConditionalGeneration:
+                加载完毕的模型实例. 推理模式下 ``text_tokenizer`` / ``audio_tokenizer`` /
+                ``feature_extractor`` / ``sampling_rate`` / ``duration_estimator`` 已就绪;
+                若 ``load_asr=True``, ``_asr_pipe`` 也已就绪, 可直接调用 ``model.transcribe``.
+
+        Notes:
+            - audio_tokenizer 优先使用 checkpoint 自带的 ``audio_tokenizer/`` 子目录;
+              缺失时回落到 HuggingFace 上的 ``eustlb/higgs-audio-v2-tokenizer``.
+            - MPS (Apple Silicon) 后端不支持 audio_tokenizer 内部卷积的大通道数,
+              此时会自动把 audio_tokenizer 放到 CPU, 主模型仍在 MPS 上.
+            - 加载过程中会临时压制 transformers/huggingface_hub 的 INFO 日志,
+              避免控制台噪音; 结束后自动恢复.
+
+        Example:
+            >>> import torch
+            >>> model = OmniVoiceForConditionalGeneration.from_pretrained(
+            ...     "k2-fsa/OmniVoice",
+            ...     torch_dtype=torch.bfloat16,
+            ...     device_map="cuda",
+            ...     load_asr=True,
+            ... )
+        """
         train_mode = kwargs.pop("train", False)
         load_asr = kwargs.pop("load_asr", False)
         asr_model_name = kwargs.pop("asr_model_name", "openai/whisper-large-v3-turbo")
@@ -253,14 +332,18 @@ class OmniVoice(PreTrainedModel):
         logging.disable(logging.INFO)
 
         try:
-            # Resolve to local path first; download only if not already cached
+            # 先解析成本地路径; 如果还没下载到本地缓存才会触发 HF hub 下载
             resolved_path = _resolve_model_path(pretrained_model_name_or_path)
 
+            # 先调 HF PreTrainedModel.from_pretrained 加载主干 (含权重 + LLM config)
             model = super().from_pretrained(resolved_path, *args, **kwargs)
 
+            # 推理模式下还要顺带加载 tokenizer / audio tokenizer / 时长估计器
             if not train_mode:
                 model.text_tokenizer = AutoTokenizer.from_pretrained(resolved_path)
 
+                # 优先使用 checkpoint 自带的 audio_tokenizer; 否则回落到 HuggingFace
+                # 上的 higgs-audio-v2-tokenizer (24kHz, 8 codebook)
                 audio_tokenizer_path = os.path.join(resolved_path, "audio_tokenizer")
 
                 if not os.path.isdir(audio_tokenizer_path):
@@ -268,11 +351,12 @@ class OmniVoice(PreTrainedModel):
                         "eustlb/higgs-audio-v2-tokenizer"
                     )
 
-                # higgs-audio-v2-tokenizer does not support MPS
-                # (output channels > 65536)
+                # higgs-audio-v2-tokenizer 的 conv 输出通道 > 65536, MPS 不支持,
+                # 这里把它强制放到 CPU 避免 MPS 报错.
                 tokenizer_device = (
                     "cpu" if str(model.device).startswith("mps") else model.device
                 )
+                # 音频 ↔ 离散 token 的编解码器 (推理流水线里负责"音频 token 化"那一环)
                 model.audio_tokenizer = HiggsAudioV2TokenizerModel.from_pretrained(
                     audio_tokenizer_path, device_map=tokenizer_device
                 )
@@ -282,8 +366,10 @@ class OmniVoice(PreTrainedModel):
 
                 model.sampling_rate = model.feature_extractor.sampling_rate
 
+                # 基于字符权重的时长估计器, 用来推算目标音频应该有多少帧
                 model.duration_estimator = RuleDurationEstimator()
 
+                # ASR 是可选的, 仅在用户没提供 ref_text 时用它自动转写参考音频
                 if load_asr:
                     model.load_asr_model(model_name=asr_model_name)
         finally:
@@ -360,23 +446,29 @@ class OmniVoice(PreTrainedModel):
     def _prepare_embed_inputs(
         self, input_ids: torch.Tensor, audio_mask: torch.Tensor
     ) -> torch.Tensor:
+        """把混合的 [文本 token / 8 层音频 token] 序列映射成统一的输入 embedding.
+
+        - 文本位置: 取第 0 层 token id, 走 LLM 自带的 text embedding.
+        - 音频位置: 8 层 codebook id 分别加上层偏移后, 在共享 audio_embeddings
+          里查表再相加, 形成该帧的复合表示.
+        - 最后用 audio_mask 在两种 embedding 之间逐位置选择.
+
+        input_ids:  (B, C, S),  audio_mask: (B, S),  返回: (B, S, H).
         """
-        Prepares embeddings from input_ids of shape (batch_size, layers, seq_length).
-        Embedding shape is (batch_size, seq_length, hidden_size).
-        """
+        # 文本 embedding: 8 层 token 是同一文本的复制, 取第 0 层即可
         text_embeds = self.get_input_embeddings()(input_ids[:, 0, :])
 
-        # Apply shift to audio IDs based on codebook layer
-        # audio_ids: [Batch, 8, Seq]
-        # codebook_layer_offsets: [1, 8, 1]
-        # Result: Layer 0 ID Layer 1 ID + Layer 2 ID + 2050...
+        # 为不同 codebook 加上独立偏移, 让 8 层共享同一张大 embedding 表也不会撞 id.
+        # input_ids * audio_mask: 文本位置的 id 先归零, 避免给文本位置查到错的音频行
+        # (后面会被 torch.where 丢弃, 但归零更安全, 避免 id 越界).
         shifted_ids = (
             input_ids * audio_mask.unsqueeze(1)
         ) + self.codebook_layer_offsets.view(1, -1, 1)
 
-        # input: [Batch, 8, Seq] -> output: [Batch, Seq, Hidden]
+        # 8 层 codebook 分别 lookup 后在 codebook 维度求和, 表示一个音频帧
         audio_embeds = self.audio_embeddings(shifted_ids).sum(dim=1)
 
+        # 文本位置用 text_embeds, 音频位置用 audio_embeds
         return torch.where(audio_mask.unsqueeze(-1), audio_embeds, text_embeds)
 
     def forward(
@@ -559,6 +651,8 @@ class OmniVoice(PreTrainedModel):
 
         self.eval()
 
+        # Step 1: 把所有输入归一化成 batch, 解析 lang/instruct, 必要时跑参考音频的
+        # encode + Whisper 转写, 同时用 RuleDurationEstimator 估计每条样本的目标 token 数.
         full_task = self._preprocess_all(
             text=text,
             language=language,
@@ -571,6 +665,7 @@ class OmniVoice(PreTrainedModel):
             duration=duration,
         )
 
+        # Step 2: 按估计长度切分: 短句直接 batch 解码, 长句改走分段解码以控制显存
         short_idx, long_idx = full_task.get_indices(
             gen_config, self.audio_tokenizer.config.frame_rate
         )
@@ -589,6 +684,7 @@ class OmniVoice(PreTrainedModel):
             for idx, res in zip(long_idx, long_results):
                 results[idx] = res
 
+        # Step 3: 解码 audio token → 波形, 并按 ref_rms 做音量归一/淡入淡出
         generated_audios = []
         for i in range(full_task.batch_size):
             assert results[i] is not None, f"Result {i} was not generated"
@@ -687,11 +783,14 @@ class OmniVoice(PreTrainedModel):
             ref_text = self.transcribe((ref_wav, self.sampling_rate))
             logger.debug("Auto-transcribed ref_text: %s", ref_text)
 
+        # 长度要对齐 hop_length, 否则 audio_tokenizer.encode 出来的最后一帧不完整
         chunk_size = self.audio_tokenizer.config.hop_length
         clip_size = int(ref_wav.shape[-1] % chunk_size)
         ref_wav = ref_wav[:, :-clip_size] if clip_size > 0 else ref_wav
         # numpy → torch at tokenizer boundary
         ref_wav_tensor = torch.from_numpy(ref_wav).to(self.audio_tokenizer.device)
+        # 关键: 参考音频通过 HiggsAudioV2 tokenizer 编码为 (C=8, T) 的离散 token,
+        # 后续整个推理过程都在 token 空间里进行, 不再接触波形.
         ref_audio_tokens = self.audio_tokenizer.encode(
             ref_wav_tensor.unsqueeze(0),
         ).audio_codes.squeeze(
@@ -724,6 +823,8 @@ class OmniVoice(PreTrainedModel):
         """
         tokenizer_device = self.audio_tokenizer.device
         if isinstance(tokens, list):
+            # 长文本分段生成: 每个 chunk 单独解码后用 cross-fade 重叠拼接,
+            # 避免在拼接处出现 click/爆音
             chunk_audios = [
                 self.audio_tokenizer.decode(t.to(tokenizer_device).unsqueeze(0))
                 .audio_values[0]
@@ -733,6 +834,7 @@ class OmniVoice(PreTrainedModel):
             ]
             audio_waveform = cross_fade_chunks(chunk_audios, self.sampling_rate)
         else:
+            # 短句: 一次性 decode (C, T) → 波形
             audio_waveform = (
                 self.audio_tokenizer.decode(tokens.to(tokenizer_device).unsqueeze(0))
                 .audio_values[0]
@@ -855,10 +957,8 @@ class OmniVoice(PreTrainedModel):
                 chunk_results[idx].append(gen_tokens[j])
 
         if all(has_ref):
-            # All items have reference audio.
-            # We still sequentially generate chunks within each item, but we
-            # batch across items for the same chunk index. This allows to keep
-            # the VRAM usage manageable while still benefiting from batching.
+            # 所有样本都有参考音频: 同一个 chunk 索引下的不同样本可以一起 batch,
+            # 单个样本内部仍按 chunk 顺序串行生成, 这样既能批量加速又不至于显存爆炸.
             for ci in range(max_num_chunks):
                 indices = [i for i in range(task.batch_size) if ci < len(all_chunks[i])]
                 if not indices:
@@ -870,8 +970,8 @@ class OmniVoice(PreTrainedModel):
                     ref_texts=[task.ref_texts[i] for i in indices],
                 )
         else:
-            # No reference audio — generate chunk 0 for all items first,
-            # then use chunk 0 output as reference for all subsequent chunks.
+            # 没有参考音频: 先把每个样本的 chunk 0 生成出来,
+            # 然后用 chunk 0 作为后续所有 chunk 的参考, 保证整段音色一致.
             indices_0 = [i for i in range(task.batch_size) if len(all_chunks[i]) > 0]
             _run_batch(
                 indices_0,
@@ -1083,8 +1183,7 @@ class OmniVoice(PreTrainedModel):
             denoise: Whether to include the <|denoise|> token.
         """
 
-        # Build style tokens: <|denoise|> + <|lang_start|>...<|lang_end|>
-        #                      + <|instruct_start|>...<|instruct_end|>
+        # 1) Style 段: 可选 <|denoise|> + 语言标签 + Voice Design 指令标签
         style_text = ""
         if denoise and ref_audio_tokens is not None:
             style_text += "<|denoise|>"
@@ -1093,6 +1192,8 @@ class OmniVoice(PreTrainedModel):
         style_text += f"<|lang_start|>{lang_str}<|lang_end|>"
         style_text += f"<|instruct_start|>{instruct_str}<|instruct_end|>"
 
+        # 文本 token 只有 1 层, 这里 repeat 到 C=8 层方便和音频 token 在 codebook 维度对齐;
+        # 后面 _prepare_embed_inputs 会根据 audio_mask 决定走文本路径还是音频路径.
         style_tokens = (
             self.text_tokenizer(style_text, return_tensors="pt")
             .input_ids.repeat(self.config.num_audio_codebook, 1)
@@ -1101,7 +1202,8 @@ class OmniVoice(PreTrainedModel):
             self.device
         )  # [1, C, N1]
 
-        # Build text tokens
+        # 2) Text 段: ref_text + text, 整段用 <|text_start|>...<|text_end|> 包起来,
+        #    并解析 [laughter] 等非言语标签为特殊 token id.
         full_text = _combine_text(ref_text=ref_text, text=text)
         wrapped_text = f"<|text_start|>{full_text}<|text_end|>"
         text_tokens = (
@@ -1112,7 +1214,7 @@ class OmniVoice(PreTrainedModel):
             self.device
         )  # [1, C, N2]
 
-        # Target: all MASK
+        # 3) Target 段: 全部初始化为 MASK, 由后续迭代解码逐步填充
         target_audio_tokens = torch.full(
             (1, self.config.num_audio_codebook, num_target_tokens),
             self.config.audio_mask_id,
@@ -1120,13 +1222,14 @@ class OmniVoice(PreTrainedModel):
             device=self.device,
         )
 
-        # Conditional input
+        # 拼接顺序: [style] + [text] + (可选 [ref_audio_tokens]) + [target MASKs]
         parts = [style_tokens, text_tokens]
         if ref_audio_tokens is not None:
             parts.append(ref_audio_tokens.unsqueeze(0).to(self.device))
         parts.append(target_audio_tokens)
         cond_input_ids = torch.cat(parts, dim=2)
 
+        # audio_mask 标识 "哪些位置应当用音频 embedding": ref_audio + target 区域
         cond_total_length = cond_input_ids.shape[2]
         cond_audio_start_idx = cond_total_length - num_target_tokens
         if ref_audio_tokens is not None:
@@ -1170,6 +1273,7 @@ class OmniVoice(PreTrainedModel):
                 task.target_lens[i],
             )
 
+        # 为每条样本单独构造输入 (长度可能不同, 后面 pad 到 max_c_len)
         inputs_list = [
             self._prepare_inference_inputs(
                 task.texts[i],
@@ -1185,8 +1289,11 @@ class OmniVoice(PreTrainedModel):
 
         c_lens = [inp["input_ids"].size(2) for inp in inputs_list]
         max_c_len = max(c_lens)
-        pad_id = self.config.audio_mask_id  # Or any other tokens
+        pad_id = self.config.audio_mask_id  # 用 MASK id 当 pad, 走音频 embedding 也不会污染上下文
 
+        # batch_size = 2B 的关键: 前 B 是 "条件输入" (含 style/text/ref),
+        # 后 B 是 "无条件输入" (只保留 target 区域), 用于 Classifier-Free Guidance.
+        # 这样一次 forward 同时拿到 cond / uncond 两路 logits.
         batch_input_ids = torch.full(
             (2 * B, self.config.num_audio_codebook, max_c_len),
             pad_id,
@@ -1203,19 +1310,22 @@ class OmniVoice(PreTrainedModel):
         for i, inp in enumerate(inputs_list):
             c_len, u_len = c_lens[i], task.target_lens[i]
 
-            # Cond (0 ~ B-1)
+            # Cond (前 B 条): 完整序列, attention 在前 c_len 范围内全连通
             batch_input_ids[i, :, :c_len] = inp["input_ids"]
             batch_audio_mask[i, :c_len] = inp["audio_mask"]
             batch_attention_mask[i, :, :c_len, :c_len] = True
 
-            # Uncond (B ~ 2B-1)
+            # Uncond (后 B 条): 只取序列末尾的 target 段 (去掉 style/text/ref),
+            # 让模型在 "没有条件" 的情况下生成同样位置的 token, 用作 CFG 基线.
             batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]
             batch_audio_mask[B + i, :u_len] = inp["audio_mask"][..., -u_len:]
             batch_attention_mask[B + i, :, :u_len, :u_len] = True
+            # 对 pad 区域开对角自注意, 避免 softmax 在全 False 行上出 NaN
             if max_c_len > u_len:
                 pad_diag = torch.arange(u_len, max_c_len, device=self.device)
                 batch_attention_mask[B + i, :, pad_diag, pad_diag] = True
 
+        # tokens 是 "当前已解出的 target token 状态", 一开始全是 MASK
         tokens = torch.full(
             (B, self.config.num_audio_codebook, max(task.target_lens)),
             self.config.audio_mask_id,
@@ -1223,12 +1333,15 @@ class OmniVoice(PreTrainedModel):
             device=self.device,
         )
 
+        # 生成 num_step 个时间步, t_shift < 1 时偏向先解早期(噪声大)的步
         timesteps = _get_time_steps(
             t_start=0.0,
             t_end=1.0,
             num_step=gen_config.num_step,
             t_shift=gen_config.t_shift,
         ).tolist()
+        # schedules[i][step] = 第 i 条样本在第 step 步要 "unmask" 多少个 token.
+        # 整体满足 sum = t_len * C, 即所有 codebook × 帧数 的 mask 总量被均匀分摊.
         schedules = []
         for t_len in task.target_lens:
             total_mask = t_len * self.config.num_audio_codebook
@@ -1247,11 +1360,14 @@ class OmniVoice(PreTrainedModel):
                 rem -= int(num)
             schedules.append(sched)
 
+        # 层惩罚向量, 用于在选位置时让靠前 codebook 优先被解 (粗→细)
         layer_ids = torch.arange(
             self.config.num_audio_codebook, device=self.device
         ).view(1, -1, 1)
 
+        # ============== 迭代式 mask-fill 主循环 ==============
         for step in range(gen_config.num_step):
+            # 一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]
             batch_logits = self(
                 input_ids=batch_input_ids,
                 audio_mask=batch_audio_mask,
@@ -1265,38 +1381,50 @@ class OmniVoice(PreTrainedModel):
 
                 c_len, t_len = c_lens[i], task.target_lens[i]
 
-                # Extract real target Logits
-                # [1, C, T, V]
+                # 取出 "target 区域" 的 logits:
+                #   cond:    序列尾部 t_len 个位置
+                #   uncond:  序列头部 t_len 个位置 (uncond 输入没拼 style/text)
                 c_logits = batch_logits[i : i + 1, :, c_len - t_len : c_len, :]
                 u_logits = batch_logits[B + i : B + i + 1, :, :t_len, :]
 
+                # 做 CFG 融合, 选出预测 token id 与对应的 confidence score
                 pred_tokens, scores = self._predict_tokens_with_scoring(
                     c_logits, u_logits, gen_config
                 )
 
+                # 层惩罚: codebook 越靠后, 分数越低, 越晚被选
                 scores = scores - (layer_ids * gen_config.layer_penalty_factor)
 
+                # 位置温度: 给 score 加 Gumbel 噪声, 引入位置选择的随机性
                 if gen_config.position_temperature > 0.0:
                     scores = _gumbel_sample(scores, gen_config.position_temperature)
 
+                # 已经填过的位置不能再被选, 设为 -inf
                 sample_tokens = tokens[i : i + 1, :, :t_len]
                 scores.masked_fill_(
                     sample_tokens != self.config.audio_mask_id, -float("inf")
                 )
 
+                # 在 (C × t_len) 个 mask 位置里取 top-k 个填上预测值
                 _, topk_idx = torch.topk(scores.flatten(), k)
                 flat_tokens = sample_tokens.flatten()
                 flat_tokens[topk_idx] = pred_tokens.flatten()[topk_idx]
                 sample_tokens.copy_(flat_tokens.view_as(sample_tokens))
 
-                # Update individual slices into batched structure
+                # 把新填的 token 同步回 cond / uncond 两份输入, 作为下一步的上下文
                 tokens[i : i + 1, :, :t_len] = sample_tokens
                 batch_input_ids[i : i + 1, :, c_len - t_len : c_len] = sample_tokens
                 batch_input_ids[B + i : B + i + 1, :, :t_len] = sample_tokens
 
+        # 按各自的 target_lens 裁掉 padding 区域
         return [tokens[i, :, : task.target_lens[i]] for i in range(B)]
 
     def _predict_tokens_with_scoring(self, c_logits, u_logits, gen_config):
+        """对 cond/uncond logits 做 CFG 融合, 返回预测 token id 与 confidence.
+
+        CFG 公式 (log 空间):  log p = log p_c + s * (log p_c - log p_u)
+        s = guidance_scale, 越大越偏向条件分布.
+        """
         if gen_config.guidance_scale != 0:
             c_log_probs = F.log_softmax(c_logits, dim=-1)
             u_log_probs = F.log_softmax(u_logits, dim=-1)
@@ -1307,16 +1435,20 @@ class OmniVoice(PreTrainedModel):
         else:
             log_probs = F.log_softmax(c_logits, dim=-1)
 
+        # 永远不能预测出 MASK token, 直接屏蔽
         log_probs[..., self.config.audio_mask_id] = -float("inf")
 
         if gen_config.class_temperature > 0.0:
+            # 类别温度 > 0: 先 top-10% 过滤, 再用 Gumbel-softmax 采样
             filtered_probs = _filter_top_k(log_probs, ratio=0.1)
             pred_tokens = _gumbel_sample(
                 filtered_probs, gen_config.class_temperature
             ).argmax(dim=-1)
         else:
+            # 贪心: 直接取最大概率 token id
             pred_tokens = log_probs.argmax(dim=-1)
 
+        # confidence = 该位置预测分布的最大 log 概率, 作为后面选 top-k 位置的依据
         confidence_scores = log_probs.max(dim=-1)[0]
 
         return pred_tokens, confidence_scores

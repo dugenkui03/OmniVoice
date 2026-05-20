@@ -524,6 +524,8 @@ def main(argv=None) -> int:
         parser.print_help()
         return 0
     logging.info(f"Loading model from {checkpoint}, device={device} ...")
+    # 加载模型: load_asr=True 时一并加载 Whisper, 用于在 demo 里
+    # 自动转写用户上传的参考音频 (即使没有填 ref_text 也能跑 voice clone).
     model = OmniVoice.from_pretrained(
         checkpoint,
         device_map=device,
@@ -533,8 +535,10 @@ def main(argv=None) -> int:
     )
     print("Model loaded.")
 
+    # 构建 Gradio UI, 内部把 model.generate 包成回调
     demo = build_demo(model, checkpoint)
 
+    # queue() 串行化请求, 避免并发时多个生成任务抢同一份模型/显存
     demo.queue().launch(
         server_name=args.ip,
         server_port=args.port,

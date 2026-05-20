@@ -205,13 +205,15 @@ def get_parser():
 
 
 def process_init(rank_queue, model_checkpoint, warmup=0):
-    """Initializer for each worker process.
+    """每个 worker 进程的初始化函数.
 
-    Loads model (with tokenizers and duration estimator) onto a specific GPU
-    via ``OmniVoice.from_pretrained()``.
+    由 ProcessPoolExecutor 在子进程启动时调用一次, 把 OmniVoice 模型
+    (含 text/audio tokenizer 与 duration estimator) 固定加载到这个 worker
+    对应的 GPU 上, 之后该 worker 复用全局 ``worker_model`` 处理任务.
     """
     global worker_model
 
+    # 限制每个 worker 使用的线程数, 防止多 GPU 进程之间互相抢 CPU
     torch.set_num_threads(2)
     torch.set_num_interop_threads(2)
 
@@ -221,6 +223,7 @@ def process_init(rank_queue, model_checkpoint, warmup=0):
     )
     logging.basicConfig(format=formatter, level=logging.INFO, force=True)
 
+    # 从主进程发来的队列里取出本 worker 应该绑定的 device, 避免多 worker 抢同一张卡
     rank = rank_queue.get()
     device_type, device_id = rank
     if device_type == "cpu":
@@ -238,6 +241,7 @@ def process_init(rank_queue, model_checkpoint, warmup=0):
         dtype=torch.float16,
     )
 
+    # 预热: 提前触发 CUDA kernel autotune / cudnn benchmark, 让正式 batch 不抖
     if warmup > 0:
         logging.info(f"Running {warmup} warmup iterations on {worker_device}")
         dummy_ref_audio = (
@@ -310,12 +314,18 @@ def cluster_samples_by_duration(
     duration_estimator: RuleDurationEstimator,
     batch_duration: float,
 ) -> List[List[Tuple]]:
+    """按累积估计时长打包 batch.
+
+    与按固定 batch_size 切分不同, 这里追求 "每个 batch 的总音频时长接近常数",
+    可以让显存占用更平稳, 也能减少 padding 浪费 (短句不会被单条长句拖慢).
+    """
     sample_with_duration = _sort_samples_by_duration(samples, duration_estimator)
     batches = []
     current_batch = []
     current_total_duration = 0.0
 
     for sample, duration in sample_with_duration:
+        # 单条就已经超过预算, 单独一个 batch (避免被错误地塞进小桶)
         if duration > batch_duration:
             batches.append([sample])
             continue
