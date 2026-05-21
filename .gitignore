@@ -20,7 +20,15 @@ build/
 /download
 /local/
 /run*
+/.models/
 /projects/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.gguf
 example.py
 results/
 examples/data*
