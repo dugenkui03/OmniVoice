@@ -77,12 +77,31 @@ flowchart TD
   "line_ids": ["008"],
   "text": "带方案来汇报",
   "body": "表面请罪，实际像拿着方案开会。",
+  "emojis": ["sweat_smile", "sun_with_face"],
   "icon": "doc",
   "style": "gold",
   "position": "vocab_area",
   "duration_sec": 5.4
 }
 ```
+
+`emojis` 会优先读取 `projects/podcast/assets/animated_emojis/*.gif` 中同名动态表情；找不到时才回退到 `icon` 对应的内置矢量图标。这样“夏日炎炎”可以用 `sun_with_face` + `sweat_smile`，而“权限被撤”可以用 `locked` + `fire`。
+
+```mermaid
+flowchart LR
+  A["effects_plan.json<br/>emojis 字段"] --> B["读取本地 animated_emojis GIF"]
+  B --> C["逐帧选择当前 GIF 帧"]
+  C --> D["Pillow 透明 UI 层"]
+  D --> E["FFmpeg 合成最终 MP4"]
+```
+
+动态表情缓存命令：
+
+```bash
+python3 projects/podcast/download_animated_emojis.py --limit 260
+```
+
+下载脚本会写入 `projects/podcast/assets/animated_emojis/manifest.json`，后续即使网页临时访问不了，也能继续使用已经缓存的 GIF。
 
 支持的内置图标：
 

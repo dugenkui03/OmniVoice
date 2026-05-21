@@ -22,7 +22,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageSequence
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +39,7 @@ DEFAULT_ANALYSIS_JSON = Path(
 )
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "output" / "podcast_video"
 DEFAULT_EFFECTS_PLAN = Path(__file__).with_name("effects_plan.json")
+DEFAULT_EMOJI_ASSET_DIR = Path(__file__).with_name("assets") / "animated_emojis"
 DEFAULT_WIDTH = 1080
 DEFAULT_HEIGHT = 1920
 DEFAULT_FPS = 25
@@ -107,6 +108,7 @@ class EffectEvent:
     effect_type: str
     text: str
     body: str
+    emojis: list[str]
     icon: str
     style: str
     position: str
@@ -534,6 +536,7 @@ def normalize_effect_rule(raw_effect: dict[str, Any]) -> dict[str, Any]:
         "effect_type": str(raw_effect.get("effect_type", "sticker_label")),
         "text": str(raw_effect.get("text", "")),
         "body": str(raw_effect.get("body", "")),
+        "emojis": [str(item) for item in raw_effect.get("emojis", [])],
         "icon": str(raw_effect.get("icon", "spark")),
         "style": str(raw_effect.get("style", "gold")),
         "position": str(raw_effect.get("position", "video_top_right")),
@@ -554,6 +557,7 @@ def event_from_lines(base: dict[str, Any], lines: list[PodcastLineTiming]) -> Ef
         effect_type=base["effect_type"],
         text=base["text"],
         body=base["body"],
+        emojis=base["emojis"],
         icon=base["icon"],
         style=base["style"],
         position=base["position"],
@@ -573,6 +577,7 @@ def event_from_segment(base: dict[str, Any], segment: VisualSegment) -> EffectEv
         effect_type=base["effect_type"],
         text=base["text"],
         body=base["body"],
+        emojis=base["emojis"],
         icon=base["icon"],
         style=base["style"],
         position=base["position"],
@@ -1040,6 +1045,63 @@ def with_alpha(color: tuple[int, int, int, int], alpha_scale: float) -> tuple[in
     return (r, g, b, max(0, min(255, int(a * alpha_scale))))
 
 
+def load_animated_emoji_cache(asset_dir: Path = DEFAULT_EMOJI_ASSET_DIR) -> dict[str, list[Image.Image]]:
+    """Load local animated emoji GIF frames for use in overlay rendering."""
+
+    cache: dict[str, list[Image.Image]] = {}
+    if not asset_dir.exists():
+        return cache
+    for path in sorted(asset_dir.glob("*.gif")):
+        try:
+            source = Image.open(path)
+            frames = [frame.convert("RGBA") for frame in ImageSequence.Iterator(source)]
+        except Exception as exc:  # noqa: BLE001 - broken downloaded assets should not stop rendering.
+            logging.warning("Skipping animated emoji %s: %s", path, exc)
+            continue
+        if frames:
+            cache[path.stem] = frames
+    return cache
+
+
+def animated_emoji_frame(
+    emoji_frames: dict[str, list[Image.Image]],
+    emoji_name: str,
+    t: float,
+    fps: int = 12,
+) -> Image.Image | None:
+    """Return the frame for an animated emoji at timestamp t."""
+
+    frames = emoji_frames.get(emoji_name)
+    if not frames:
+        return None
+    frame_index = int(max(0.0, t) * fps) % len(frames)
+    return frames[frame_index]
+
+
+def paste_animated_emoji(
+    image: Image.Image,
+    emoji_frames: dict[str, list[Image.Image]],
+    emoji_name: str,
+    t: float,
+    center: tuple[int, int],
+    size: int,
+    alpha_scale: float,
+) -> bool:
+    """Paste one animated emoji frame on the transparent overlay image."""
+
+    frame = animated_emoji_frame(emoji_frames, emoji_name, t)
+    if frame is None:
+        return False
+    resized = frame.resize((size, size), Image.Resampling.LANCZOS)
+    if alpha_scale < 0.99:
+        alpha = resized.getchannel("A").point(lambda value: int(value * alpha_scale))
+        resized.putalpha(alpha)
+    x = int(center[0] - size / 2)
+    y = int(center[1] - size / 2)
+    image.alpha_composite(resized, (x, y))
+    return True
+
+
 def draw_title(draw: ImageDraw.ImageDraw, fonts: dict[str, ImageFont.FreeTypeFont], width: int) -> None:
     """Draw the persistent show title and small format label."""
 
@@ -1250,8 +1312,10 @@ def effect_position_box(
 
 
 def draw_effect_event(
+    image: Image.Image,
     draw: ImageDraw.ImageDraw,
     fonts: dict[str, ImageFont.FreeTypeFont],
+    emoji_frames: dict[str, list[Image.Image]],
     event: EffectEvent,
     t: float,
     width: int,
@@ -1263,7 +1327,7 @@ def draw_effect_event(
 
     if event.effect_type == "callout_card":
         if vocab_word is None:
-            draw_effect_callout_card(draw, fonts, event, t, width, vocab_y)
+            draw_effect_callout_card(image, draw, fonts, emoji_frames, event, t, width, vocab_y)
         return
 
     palette = effect_palette(event.style)
@@ -1276,8 +1340,10 @@ def draw_effect_event(
 
 
 def draw_effect_callout_card(
+    image: Image.Image,
     draw: ImageDraw.ImageDraw,
     fonts: dict[str, ImageFont.FreeTypeFont],
+    emoji_frames: dict[str, list[Image.Image]],
     event: EffectEvent,
     t: float,
     width: int,
@@ -1309,7 +1375,31 @@ def draw_effect_callout_card(
     )
 
     icon_y = y1 + 112
-    draw_icon(draw, event.icon, (center_x, icon_y), 82, with_alpha(palette["icon"], alpha_scale))
+    emoji_names = event.emojis or []
+    main_emoji_drawn = False
+    if emoji_names:
+        size = 154 + int(10 * math.sin(max(0.0, t - event.start_sec) * math.tau * 1.6))
+        main_emoji_drawn = paste_animated_emoji(
+            image,
+            emoji_frames,
+            emoji_names[0],
+            t - event.start_sec,
+            (center_x, icon_y),
+            size,
+            alpha_scale,
+        )
+    if len(emoji_names) > 1:
+        paste_animated_emoji(
+            image,
+            emoji_frames,
+            emoji_names[1],
+            t - event.start_sec + 0.23,
+            (center_x + 170, icon_y + 10),
+            96,
+            alpha_scale * 0.92,
+        )
+    if not main_emoji_drawn:
+        draw_icon(draw, event.icon, (center_x, icon_y), 82, with_alpha(palette["icon"], alpha_scale))
     title_width, _ = text_size(draw, event.text, fonts["effect_title"])
     draw.text(
         (center_x - title_width / 2, y1 + 180),
@@ -1383,6 +1473,7 @@ def render_overlay_frame(
     vocab_display_windows: list[VocabDisplayWindow],
     effect_events: list[EffectEvent],
     vocab_by_word: dict[str, dict[str, Any]],
+    emoji_frames: dict[str, list[Image.Image]],
     fonts: dict[str, ImageFont.FreeTypeFont],
     width: int,
     height: int,
@@ -1407,7 +1498,7 @@ def render_overlay_frame(
     draw_vocab_card(draw, fonts, vocab_word, vocab_by_word, width, vocab_y)
     draw_caption(draw, fonts, line, width, caption_y)
     for event in active_effect_events(t, effect_events):
-        draw_effect_event(draw, fonts, event, t, width, caption_y, vocab_y, vocab_word)
+        draw_effect_event(image, draw, fonts, emoji_frames, event, t, width, caption_y, vocab_y, vocab_word)
     return image
 
 
@@ -1443,6 +1534,8 @@ def render_overlay_video(
         "word": load_font(font_path, 78),
     }
     vocab_by_word = {str(card.get("word")): card for card in analysis.get("vocab_cards", [])}
+    emoji_frames = load_animated_emoji_cache()
+    logging.info("Loaded %s animated emoji assets", len(emoji_frames))
 
     cmd = [
         ffmpeg,
@@ -1478,6 +1571,7 @@ def render_overlay_video(
                 vocab_display_windows,
                 effect_events,
                 vocab_by_word,
+                emoji_frames,
                 fonts,
                 width,
                 height,
