@@ -12,7 +12,7 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="#fff"/>
-  <text x="60" y="74" class="title">第十一章：训练工程</text>
+  <text x="60" y="74" class="title">第十二章：训练工程</text>
   <text x="60" y="114" class="sub">TTS 训练不是只调模型：数据、特征、对齐、mask 和 loss 都会决定结果</text>
 
   <g transform="translate(70,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">原始数据</text><text x="28" y="88" class="t">文本 + 音频</text><text x="28" y="118" class="t">speaker / style</text></g>

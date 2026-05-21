@@ -1,6 +1,6 @@
-# 第十五章：OmniVoice 可控生成 —— 音色克隆、声音设计与推理参数
+# 第十六章：OmniVoice 可控生成 —— 音色克隆、声音设计与推理参数
 
-完成第十四章的 zero-shot voice cloning（零样本声音克隆）后，本章继续看 OmniVoice 的可控生成能力。
+完成第十五章的 zero-shot voice cloning（零样本声音克隆）后，本章继续看 OmniVoice 的可控生成能力。
 
 这里要先区分两个概念：
 
@@ -22,7 +22,7 @@ flowchart LR
     D --> F["audio<br/>输出音频"]
 ```
 
-## 15.1 voice cloning：用 `ref_audio` 控制音色
+## 16.1 voice cloning：用 `ref_audio` 控制音色
 
 voice cloning（声音克隆）模式的核心输入是：
 
@@ -50,7 +50,7 @@ audio = model.generate(
 
 如果省略 `ref_text`，官方 README 说明模型会用 Whisper ASR 自动转写参考音频。工程上，如果你已经有准确转写，手动传入 `ref_text` 更可控。
 
-## 15.2 voice design：用 `instruct` 描述属性
+## 16.2 voice design：用 `instruct` 描述属性
 
 voice design（声音设计）模式使用 `instruct` 参数，不需要参考音频。
 
@@ -74,7 +74,7 @@ pitch control（音高控制）
 accent control（口音控制）
 ```
 
-## 15.3 `instruct` 支持哪些属性
+## 16.3 `instruct` 支持哪些属性
 
 官方 voice design 文档中列出的属性包括：
 
@@ -105,7 +105,7 @@ female, young adult, high pitch, british accent
 女，青年，高音调，四川话
 ```
 
-## 15.4 `ref_audio` 和 `instruct` 不要先假设完全解耦
+## 16.4 `ref_audio` 和 `instruct` 不要先假设完全解耦
 
 初学时很容易把它想成：
 
@@ -126,7 +126,7 @@ instruct 提供属性条件，影响模型生成声音的方向。
 
 如果你的当前 OmniVoice 版本支持同时传 `ref_audio` 和 `instruct`，可以把它作为实验项验证；如果效果不稳定，先分开测试 voice cloning 和 voice design，确认每个控制入口单独有效。
 
-## 15.5 推理参数：`num_step`、`guidance_scale`、`speed`、`duration`
+## 16.5 推理参数：`num_step`、`guidance_scale`、`speed`、`duration`
 
 官方 generation parameters 文档列出了一些常见控制参数。
 
@@ -163,7 +163,7 @@ audio = model.generate(
 
 官方文档说明：`duration` 优先级高于 `speed`。也就是说同时传时，`speed` 会被忽略。
 
-## 15.6 口音控制实验设计
+## 16.6 口音控制实验设计
 
 如果你想验证口音控制，不要只生成一条音频就下结论。建议设计一个小实验：
 
@@ -193,7 +193,7 @@ ACCENT_CASES = {
 | 口音方向 | 是否能听出目标口音倾向 |
 | 音质自然 | 是否因为控制过强变得怪异 |
 
-## 15.7 批量生成脚本
+## 16.7 批量生成脚本
 
 下面脚本演示 voice design（声音设计）下的多口音批量生成。它不依赖参考音频，先验证 `instruct` 单独是否有效。
 
@@ -258,7 +258,7 @@ if __name__ == "__main__":
 
 跑通后，再尝试加入 `ref_audio` 做组合实验，并记录结果是否真的“保留音色同时改变口音”。不要直接假设一定成功。
 
-## 15.8 可控生成的排查方法
+## 16.8 可控生成的排查方法
 
 | 现象 | 优先排查 |
 | --- | --- |
@@ -269,7 +269,7 @@ if __name__ == "__main__":
 | 生成太慢 | `num_step` 是否过大，是否在 CPU 上跑 |
 | 长文本不稳 | 查看 long-form chunk 参数和文本切句 |
 
-## 15.9 本章小结
+## 16.9 本章小结
 
 本章最重要的直觉：
 

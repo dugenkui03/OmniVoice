@@ -13,7 +13,7 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="#fff"/>
-  <text x="60" y="74" class="title">第十二章：推理、控制、评测与部署</text>
+  <text x="60" y="74" class="title">第十三章：推理、控制、评测与部署</text>
   <text x="60" y="114" class="sub">从“模型能跑”到“服务稳定”：链路、控制、指标和监控都要一起看</text>
 
   <g transform="translate(80,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">输入文本</text><text x="28" y="88" class="t">长文本、数字</text><text x="28" y="118" class="t">中英混读</text></g>

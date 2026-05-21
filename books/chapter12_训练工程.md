@@ -1,4 +1,4 @@
-# 第十一章：训练工程 —— 数据、特征、对齐与损失函数
+# 第十二章：训练工程 —— 数据、特征、对齐与损失函数
 
 TTS（Text-to-Speech，文本转语音）的工程成败很大程度取决于数据和训练流程。一个干净、对齐准确、标注一致的数据集，往往比盲目换更复杂模型更重要。
 
@@ -10,7 +10,7 @@ TTS（Text-to-Speech，文本转语音）的工程成败很大程度取决于数
 
 对工程同学来说，可以把训练工程理解成“把一堆文本和音频整理成模型稳定可消费的数据协议”。协议错了，模型会学到错误规律。
 
-![训练工程流水线图](./images/chapter11_训练工程_训练流水线图.svg)
+![训练工程流水线图](./images/chapter12_训练工程_训练流水线图.svg)
 
 ## 本章导图
 
@@ -26,7 +26,7 @@ flowchart LR
     G --> H["checkpoint<br/>模型快照"]
 ```
 
-## 11.1 数据集长什么样
+## 12.1 数据集长什么样
 
 TTS 训练数据最基本的形式是 text-audio pair（文本音频对）：
 
@@ -49,7 +49,7 @@ TTS 训练数据最基本的形式是 text-audio pair（文本音频对）：
 
 最小可训练数据看起来简单，但真正难的是质量一致性。
 
-## 11.2 数据清洗：TTS 训练的第一道质量门
+## 12.2 数据清洗：TTS 训练的第一道质量门
 
 常见数据清洗包括：
 
@@ -88,7 +88,7 @@ TTS 训练数据最基本的形式是 text-audio pair（文本音频对）：
 
 如果训练集里大量文本音频不匹配，模型 loss（损失）再低也不代表效果会好。
 
-## 11.3 文本清洗和文本前端
+## 12.3 文本清洗和文本前端
 
 训练阶段的文本处理要和推理阶段尽量一致。否则模型训练时看到一种输入，线上推理时看到另一种输入，会产生 distribution shift（分布偏移）。
 
@@ -114,7 +114,7 @@ G2P（字形到音素）
 
 真实系统不会一定长这样，但核心是：训练和推理必须使用一致的规范。
 
-## 11.4 mel extraction（梅尔特征提取）
+## 12.4 mel extraction（梅尔特征提取）
 
 mel extraction（梅尔特征提取）把 waveform（波形）变成 mel-spectrogram（梅尔频谱）。
 
@@ -131,7 +131,7 @@ mel extraction（梅尔特征提取）把 waveform（波形）变成 mel-spectro
 
 这些参数必须和 vocoder（声码器）训练时一致。否则声学模型输出的 mel 和 vocoder 期望的 mel 分布不一致，可能出现音质下降、金属感、爆音等问题。
 
-## 11.5 F0、energy 和 duration 特征
+## 12.5 F0、energy 和 duration 特征
 
 FastSpeech 2 类模型和很多可控 TTS 系统会显式使用：
 
@@ -151,7 +151,7 @@ duration（时长）
 
 注意：这些特征本身也会有提取误差。例如 F0 extractor（基频提取器）在清音、噪声、气声、嘶哑声上可能不稳定。训练前最好做分布检查和异常值过滤。
 
-## 11.6 alignment（对齐）：训练工程的核心难点
+## 12.6 alignment（对齐）：训练工程的核心难点
 
 alignment（对齐）用于确定文本 token 和语音帧之间的关系。
 
@@ -182,7 +182,7 @@ TTS 对齐通常依赖 monotonic（单调）假设：
 
 如果数据里有漏字、插话、笑声、背景人声，对齐会更困难。
 
-## 11.7 loss（损失函数）：每个 loss 在约束什么
+## 12.7 loss（损失函数）：每个 loss 在约束什么
 
 不同模型使用不同 loss（损失函数）。看到 loss 时，不要只记名字，要问它在约束什么。
 
@@ -210,7 +210,7 @@ TTS 对齐通常依赖 monotonic（单调）假设：
 | Diffusion TTS | noise prediction / score matching |
 | Flow matching TTS | vector field / flow matching loss |
 
-## 11.8 batch、padding 和 mask
+## 12.8 batch、padding 和 mask
 
 语音样本长度差异很大。同一个 batch（批次）里，文本长度和 mel 长度都可能不同。
 
@@ -244,7 +244,7 @@ flowchart LR
 
 mask 是 TTS 工程里非常容易出 bug 的地方。mask 维度错了，模型可能在 padding 区域学到无意义模式。
 
-## 11.9 训练流程中的工程配置
+## 12.9 训练流程中的工程配置
 
 常见训练配置：
 
@@ -268,7 +268,7 @@ gradient clipping（梯度裁剪）
 | gradient clipping（梯度裁剪） | 避免梯度爆炸 |
 | checkpoint（模型快照） | 保存模型，支持恢复和挑选最佳版本 |
 
-## 11.10 diffusion TTS 的训练流程
+## 12.10 diffusion TTS 的训练流程
 
 diffusion TTS（扩散式文本转语音）训练流程可以先这样看：
 
@@ -312,7 +312,7 @@ latent diffusion 通常更省，但依赖 encoder / decoder 质量。
 少步采样通常需要采样器、蒸馏或训练目标配合。
 ```
 
-## 11.11 训练监控和失败样本
+## 12.11 训练监控和失败样本
 
 训练时不要只看总 loss。TTS 需要同时看客观指标、可视化和听感。
 
@@ -329,7 +329,7 @@ latent diffusion 通常更省，但依赖 encoder / decoder 质量。
 
 一个成熟训练流程通常会保留固定评测集，每隔一定 step 合成一批音频，用于横向比较 checkpoint。
 
-## 11.12 本章小结
+## 12.12 本章小结
 
 本章最重要的直觉：
 

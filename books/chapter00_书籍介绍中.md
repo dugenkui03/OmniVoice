@@ -83,11 +83,12 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 
 ### 第三编：工程实践
 
-11. [训练工程：数据、特征、对齐与损失函数](chapter11_训练工程.md)
-12. [推理、控制、评测与部署](chapter12_推理控制评测与部署.md)
-13. [OmniVoice 生态：开源模型、商业 SaaS 与同名系统](chapter13_OmniVoice生态.md)
-14. [OmniVoice 本地实战：零样本声音克隆](chapter14_OmniVoice本地实战.md)
-15. [OmniVoice 可控生成：音色克隆与口音修改](chapter15_OmniVoice可控生成.md)
+11. [工程视角下的模型方案：训练模型到底交付了什么](chapter11_工程视角下的模型方案.md)
+12. [训练工程：数据、特征、对齐与损失函数](chapter12_训练工程.md)
+13. [推理、控制、评测与部署](chapter13_推理控制评测与部署.md)
+14. [OmniVoice 生态：开源模型、商业 SaaS 与同名系统](chapter14_OmniVoice生态.md)
+15. [OmniVoice 本地实战：零样本声音克隆](chapter15_OmniVoice本地实战.md)
+16. [OmniVoice 可控生成：音色克隆与口音修改](chapter16_OmniVoice可控生成.md)
 
 ## 文件目录
 
@@ -105,8 +106,8 @@ books/
 │   ├── chapter08_声学模型_结构图.svg
 │   ├── chapter09_Vocoder与波形生成_还原链路图.svg
 │   ├── chapter10_扩散模型与新一代TTS_生成空间图.svg
-│   ├── chapter11_训练工程_训练流水线图.svg
-│   └── chapter12_推理控制评测与部署_服务链路图.svg
+│   ├── chapter12_训练工程_训练流水线图.svg
+│   └── chapter13_推理控制评测与部署_服务链路图.svg
 ├── chapter00_书籍介绍中.md
 ├── chapter01_TTS到底在解决什么问题.md
 ├── chapter02_声音是什么.md
@@ -118,11 +119,12 @@ books/
 ├── chapter08_声学模型.md
 ├── chapter09_Vocoder与波形生成.md
 ├── chapter10_扩散模型与新一代TTS.md
-├── chapter11_训练工程.md
-├── chapter12_推理控制评测与部署.md
-├── chapter13_OmniVoice生态.md
-├── chapter14_OmniVoice本地实战.md
-└── chapter15_OmniVoice可控生成.md
+├── chapter11_工程视角下的模型方案.md
+├── chapter12_训练工程.md
+├── chapter13_推理控制评测与部署.md
+├── chapter14_OmniVoice生态.md
+├── chapter15_OmniVoice本地实战.md
+└── chapter16_OmniVoice可控生成.md
 ```
 
 ## 章节更新参考
@@ -142,11 +144,12 @@ books/
 | 第 8 章：声学模型 | 文本/音素到声学表示 | 补充 encoder、decoder、attention、duration、variance adaptor、latent variable |
 | 第 9 章：Vocoder 与波形生成 | 声学表示到 waveform | 补充 HiFi-GAN、DiffWave、BigVGAN、GAN loss、diffusion vocoder |
 | 第 10 章：扩散模型与新一代 TTS | diffusion / flow matching 生成建模 | 补充 DDPM、score、condition、cross-attention、Grad-TTS、latent diffusion、F5-TTS |
-| 第 11 章：训练工程 | 数据到训练 batch | 补充数据清洗、特征提取、forced alignment、MAS、loss、mask、bucket、EMA |
-| 第 12 章：推理、控制、评测与部署 | 从模型到服务 | 补充采样步数、guidance、RTF、MOS、speaker similarity、部署优化和监控 |
-| 第 13 章：OmniVoice 生态 | OmniVoice 名称和生态边界 | 保留生态澄清，避免和前面基础章节混写 |
-| 第 14 章：OmniVoice 本地实战 | zero-shot voice cloning 工程案例 | 补充环境、依赖、设备 fallback、类型兼容、完整脚本 |
-| 第 15 章：OmniVoice 可控生成 | 音色克隆与口音控制案例 | 补充 `ref_audio`、`instruct`、口音白名单、可控生成和特征分解的对应关系 |
+| 第 11 章：工程视角下的模型方案 | 解释训练模型、checkpoint、推理代码和模型方案的区别 | 补充常见项目文件映射、OmniVoice 代码对应关系、工程接入检查清单 |
+| 第 12 章：训练工程 | 数据到训练 batch | 补充数据清洗、特征提取、forced alignment、MAS、loss、mask、bucket、EMA |
+| 第 13 章：推理、控制、评测与部署 | 从模型到服务 | 补充采样步数、guidance、RTF、MOS、speaker similarity、部署优化和监控 |
+| 第 14 章：OmniVoice 生态 | OmniVoice 名称和生态边界 | 保留生态澄清，避免和前面基础章节混写 |
+| 第 15 章：OmniVoice 本地实战 | zero-shot voice cloning 工程案例 | 补充环境、依赖、设备 fallback、类型兼容、完整脚本 |
+| 第 16 章：OmniVoice 可控生成 | 音色克隆与口音控制案例 | 补充 `ref_audio`、`instruct`、口音白名单、可控生成和特征分解的对应关系 |
 
 ## 阅读路径
 
@@ -157,7 +160,8 @@ books/
 第 5 章：mel / F0 / energy / duration
 第 6 章：内容、音色、情绪、风格分解
 第 8-10 章：声学模型、vocoder、diffusion / flow matching
-第 11-12 章：训练、推理、评测、部署
+第 11 章：工程视角下理解模型交付物
+第 12-13 章：训练、推理、评测、部署
 ```
 
 如果目标是先跑通 demo，可以先读第 13-15 章，但建议回头补第 1-6 章，否则很容易只会改参数，不理解参数背后的声学含义。
