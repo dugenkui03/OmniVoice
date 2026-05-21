@@ -21,6 +21,7 @@ build/
 /local/
 /run*
 /.models/
+/output/
 /projects/
 *.safetensors
 *.ckpt
