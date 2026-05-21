@@ -11,11 +11,7 @@ source 源：声带振动，决定基频、清浊、部分音色
 filter 滤波器：声道、口腔、鼻腔，决定共振峰和元音特征
 ```
 
-```mermaid
-flowchart LR
-    A["声带振动 source"] --> B["声道/口腔/鼻腔 filter"]
-    B --> C["最终语音"]
-```
+![人声产生机制：声源-滤波器模型、关键术语与 TTS 关系](./images/chapter03_人声产生机制_source_filter_model.jpg)
 
 ## 3.2 关键术语
 

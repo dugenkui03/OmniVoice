@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 Z" fill="#27548a"/></marker>
+    <style>
+      .title{font:700 44px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#10213f}
+      .sub{font:400 22px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#334155}
+      .h{font:700 25px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#0f3b63}
+      .t{font:400 20px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#1f2937}
+      .small{font:400 18px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#475569}
+      .box{fill:#f8fbff;stroke:#8bb4e7;stroke-width:2;rx:18}
+      .gan{fill:#fff7ed;stroke:#f59e0b;stroke-width:2;rx:18}
+      .out{fill:#ecfdf5;stroke:#10b981;stroke-width:2;rx:18}
+      .line{stroke:#27548a;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#fff"/>
+  <text x="60" y="74" class="title">第九章：Vocoder 与波形生成</text>
+  <text x="60" y="114" class="sub">vocoder（声码器）把声学表示还原成最终可播放的 waveform（波形）</text>
+
+  <rect x="100" y="230" width="330" height="190" class="box"/>
+  <text x="135" y="280" class="h">声学表示</text>
+  <text x="135" y="330" class="t">mel-spectrogram（梅尔频谱）</text>
+  <text x="135" y="370" class="t">latent（潜变量）</text>
+  <text x="135" y="410" class="t">codec token（语音编码 token）</text>
+
+  <rect x="620" y="230" width="330" height="190" class="gan"/>
+  <text x="675" y="280" class="h">vocoder（声码器）</text>
+  <text x="655" y="330" class="t">补回相位、高频和波形细节</text>
+  <text x="655" y="370" class="small">GAN vocoder：HiFi-GAN / BigVGAN</text>
+  <text x="655" y="405" class="small">Diffusion vocoder：DiffWave</text>
+
+  <rect x="1140" y="230" width="330" height="190" class="out"/>
+  <text x="1195" y="280" class="h">waveform（波形）</text>
+  <path d="M1190 350 C1220 300,1250 400,1280 350 S1340 300,1370 350 S1430 400,1460 350" stroke="#059669" stroke-width="5" fill="none"/>
+  <text x="1195" y="405" class="small">最终音频采样点，可以播放</text>
+
+  <path d="M430 325 H610" class="line"/>
+  <path d="M950 325 H1130" class="line"/>
+
+  <rect x="230" y="590" width="1140" height="160" class="box"/>
+  <text x="280" y="640" class="h">排错分工</text>
+  <text x="280" y="690" class="t">字读错、漏读、重复：优先看文本前端、对齐和声学模型。</text>
+  <text x="280" y="730" class="t">毛刺、爆音、金属感、发闷：优先看 vocoder、采样率和 mel 参数是否匹配。</text>
+</svg>

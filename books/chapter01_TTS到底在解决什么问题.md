@@ -87,3 +87,19 @@ TTS 的核心不是“让模型读字”，而是让模型同时解决四件事�
 谁在说：speaker identity（说话人身份） / timbre（音色）
 怎么说：prosody（韵律） / emotion（情绪） / style（风格）
 ```
+
+这是一种学习用拆分，不是某本教材固定规定的唯一分类。它的依据来自两层共识：
+
+1. 语音学和传统 TTS 通常会区分文字/语言内容、发音表示、韵律和最终声学波形。例如 Paul Taylor 的《Text-to-Speech Synthesis》把 TTS 看成从 writing（文字信号）到 speech（语音信号）的转换，并单独讨论 pronunciation（发音）和 prosody（韵律）。
+2. 神经 TTS 工程里也经常把条件拆成 text / phoneme（文本/音素）、speaker（说话人）、style / prosody（风格/韵律）以及 pitch、energy、duration 等变化信息。FastSpeech 2 显式使用 duration、pitch、energy 作为条件；GST 相关论文则把 speaking style（说话风格）作为可学习的风格表示。
+
+所以这四句话更适合作为入门地图：
+
+```text
+说什么：内容层
+怎么读：发音层
+谁在说：说话人/音色层
+怎么说：韵律/情绪/风格层
+```
+
+后面章节会逐步说明：这些信息在真实语音里并不是天然完全分开的，mel、latent、waveform 往往都是混合表示；所谓“分开”，通常依赖模型结构、训练数据和监督信号。

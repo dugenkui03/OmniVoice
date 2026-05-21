@@ -1,271 +1,288 @@
-# 第十五章：OmniVoice 可控生成 —— 音色克隆与口音修改
+# 第十五章：OmniVoice 可控生成 —— 音色克隆、声音设计与推理参数
 
-如果您已经完成了第十四章的本地部署，您可能已经体验到了将自己或他人的声音克隆出来的效果。然而，零样本声音克隆只是第一步。真正需要理解的是：模型如何在参考音频和控制条件之间分配“音色”和“口音/韵律”。
+完成第十四章的 zero-shot voice cloning（零样本声音克隆）后，本章继续看 OmniVoice 的可控生成能力。
 
-本章将为您详解如何通过“参考音频（`ref_audio`）+ 描述指令（`instruct`）”的双轮驱动控制，在保留原有男性音色的前提下，让他分别讲出地道的美音、英音与印度口音英语，并提供官方的标准控制词表。
+这里要先区分两个概念：
 
----
-
-## 15.1 核心交互：`ref_audio` + `instruct` 的结合
-
-在传统的克隆模型中，“音色”和“口音”是纠缠在一起的静态泥潭。但在 OmniVoice 的设计中，它们变成了两个可以独立滑动调节的控制旋钮：
-
-```
-                    +--------------------+
-                    |  输入文本 (Text)   |
-                    +---------+----------+
-                              |
-+-------------------+         v         +-------------------+
-| 参考音频 ref_audio | ---> [ 融合器 ] <--- | 描述指令 instruct |
-|  (决定物理音色)   |    (Attention)    |  (决定发音口音)   |
-+-------------------+         |         +-------------------+
-                              v
-                    +--------------------+
-                    | 地道口音的克隆音频 |
-                    +--------------------+
+```text
+voice cloning（声音克隆）：用 ref_audio 提供参考音色。
+voice design（声音设计）：用 instruct 描述想要的说话人属性。
 ```
 
-在调用代码时，我们同时传入这两个参数：
-*   **`ref_audio`**：用于锚定**物理音色指纹**（例如一个中气十足的老年男性声音）。
-*   **`instruct`**：用于注入**口音与韵律风格**。
+两者都属于“控制生成”，但控制入口不同。本章重点是把这些控制入口和前面学过的 TTS 概念对应起来。
 
----
+## 本章导图
 
-## 15.2 实战展示：同一个老年男声的三重英文口音
+```mermaid
+flowchart LR
+    A["text<br/>说什么"] --> D["OmniVoice generate"]
+    B["ref_audio<br/>参考音色"] --> D
+    C["instruct<br/>属性描述"] --> D
+    E["num_step / guidance / speed / duration<br/>采样和韵律参数"] --> D
+    D --> F["audio<br/>输出音频"]
+```
 
-为了验证这一魔法，我们使用同一个男声参考音频 [reference_voice.wav](file:///Users/bytedance/.gemini/antigravity/scratch/omnivoice_test/reference_voice.wav)，分别合成了三种截然不同的口音文件。它们的表现令人惊叹：
+## 15.1 voice cloning：用 `ref_audio` 控制音色
 
-### 1. 🇺🇸 美式口音老年男声
-*   **指定 Instruct 词**：`"male, elderly, american accent"`
-*   **生成文件**：[omnivoice_clone_accent_us.wav](file:///Users/bytedance/.gemini/antigravity/scratch/omnivoice_test/omnivoice_clone_accent_us.wav)
-*   **发音特点**：保留了原音频中老年人低沉、微带沙哑但浑厚的音色。在说英语时，发音呈现出标准的地道美音特征，卷舌音 `/r/` 非常饱满，元音发音宽阔而平缓。
+voice cloning（声音克隆）模式的核心输入是：
 
-### 2. 🇬🇧 英式口音老年男声
-*   **指定 Instruct 词**：`"male, elderly, british accent"`
-*   **生成文件**：[omnivoice_clone_accent_uk.wav](file:///Users/bytedance/.gemini/antigravity/scratch/omnivoice_test/omnivoice_clone_accent_uk.wav)
-*   **发音特点**：完全相同的生理音色。但在说英语时，舌头位置明显发生了改变，元音发音短促、精致，完全抑制了美式的卷舌音，字里行间透露着优雅地道的伦敦 RP 绅士腔调。
+```text
+text + ref_audio + 可选 ref_text
+```
 
-### 3. 🇮🇳 印度口音老年男声
-*   **指定 Instruct 词**：`"male, elderly, indian accent"`
-*   **生成文件**：[omnivoice_clone_accent_in.wav](file:///Users/bytedance/.gemini/antigravity/scratch/omnivoice_test/omnivoice_clone_accent_in.wav)
-*   **发音特点**：音色不变，但发音极具地方特色。爆破音 `/t/` 和 `/d/` 带有明显的卷舌浊化，重音被往前移动，句尾带有一种富有节奏感、向上滑动的弹舌音，极度逼真。
+它对应前面第六章的：
 
----
+```text
+speaker identity（说话人身份）
+timbre（音色）
+prompt speech（提示语音）
+```
 
-## 15.3 避坑指南：官方白名单控制词表
+示例：
 
-在进行口音修改和声音设计时，很多开发者会随意写一些 Prompt，例如 `"warm tone"`, `"deep voice"`，结果系统会报错或拦截。这是因为 **OmniVoice 内部拥有一套严格的控制词白名单机制**，非白名单词汇会被拦截以防止生成不受控的杂音。
+```python
+audio = model.generate(
+    text="Hello, this is a test of zero-shot voice cloning.",
+    ref_audio="ref.wav",
+    ref_text="Transcription of the reference audio.",
+)
+```
 
-以下是官方支持的最标准、最合法的属性描述词表：
+如果省略 `ref_text`，官方 README 说明模型会用 Whisper ASR 自动转写参考音频。工程上，如果你已经有准确转写，手动传入 `ref_text` 更可控。
 
-### 1. 核心口音控制词 (Accents)
-*   `american accent` （地道美音）
-*   `british accent` （地道英音）
-*   `indian accent` （印度口音）
-*   `australian accent` （澳大利亚口音）
+## 15.2 voice design：用 `instruct` 描述属性
 
-### 2. 年龄与角色属性 (Age)
-*   `elderly` （老年）
-*   `mature` （中年/成熟）
-*   `young adult` （青年）
-*   `teenager` （少年）
-*   `child` （儿童）
+voice design（声音设计）模式使用 `instruct` 参数，不需要参考音频。
 
-### 3. 性别控制 (Gender)
-*   `male` （男性）
-*   `female` （女性）
+官方文档描述的 `instruct` 是一个用逗号分隔的属性字符串，支持 gender（性别）、age（年龄）、pitch（音高）、style（风格）、accent（英文口音）和 dialect（中文方言）等类别。
 
-> [!WARNING]
-> **重要提示**：在编写 `instruct` 串时，请务必从上述标准词汇中进行组合（例如 `"male, elderly, british accent"`），避免传入 `"warm tone"`, `"crystal clear"` 等非法自定义词汇，否则会被系统内置的属性检查器拦截。
+示例：
 
----
+```python
+audio = model.generate(
+    text="Hello, this is a test for voice design.",
+    instruct="female, young adult, high pitch, british accent",
+)
+```
 
-## 15.4 混合克隆与口音修改实战代码
+它对应前面章节里的：
 
-以下是实现“音色克隆 + 强制多口音修改”的完整 Python 代码。同样，本代码严格遵循**无魔数定义**与**步骤 1, 2, 3 详尽中文注释**：
+```text
+style condition（风格条件）
+speaker attribute（说话人属性）
+pitch control（音高控制）
+accent control（口音控制）
+```
+
+## 15.3 `instruct` 支持哪些属性
+
+官方 voice design 文档中列出的属性包括：
+
+| 类别 | 示例 |
+| --- | --- |
+| gender（性别） | `male`、`female` |
+| age（年龄） | `child`、`teenager`、`young adult`、`middle-aged`、`elderly` |
+| pitch（音高） | `very low pitch`、`low pitch`、`moderate pitch`、`high pitch`、`very high pitch` |
+| style（风格） | `whisper` |
+| English accent（英文口音） | `american accent`、`british accent`、`australian accent`、`canadian accent`、`indian accent` 等 |
+| Chinese dialect（中文方言） | `四川话`、`陕西话`、`东北话` 等 |
+
+几个注意点：
+
+```text
+同一类别里通常只选一个属性。
+不同类别可以组合。
+英文口音主要对英文文本生效。
+中文方言主要对中文文本生效。
+某些属性组合可能效果不好，模型可能忽略其中一部分。
+```
+
+例如：
+
+```text
+male, elderly, low pitch, american accent
+female, young adult, high pitch, british accent
+女，青年，高音调，四川话
+```
+
+## 15.4 `ref_audio` 和 `instruct` 不要先假设完全解耦
+
+初学时很容易把它想成：
+
+```text
+ref_audio 只控制音色
+instruct 只控制口音或风格
+```
+
+这个理解有帮助，但不要把它当成严格物理事实。真实模型里，音色、口音、韵律、年龄感、音高范围会互相纠缠。
+
+更稳妥的理解是：
+
+```text
+ref_audio 提供参考语音条件，强烈影响音色和说话习惯。
+instruct 提供属性条件，影响模型生成声音的方向。
+最终结果是多个条件共同作用后的输出。
+```
+
+如果你的当前 OmniVoice 版本支持同时传 `ref_audio` 和 `instruct`，可以把它作为实验项验证；如果效果不稳定，先分开测试 voice cloning 和 voice design，确认每个控制入口单独有效。
+
+## 15.5 推理参数：`num_step`、`guidance_scale`、`speed`、`duration`
+
+官方 generation parameters 文档列出了一些常见控制参数。
+
+| 参数 | 极简解释 | 对应前面章节 |
+| --- | --- | --- |
+| `num_step` | 迭代生成步数；步数多通常更慢，质量可能更稳 | diffusion sampling（扩散采样） |
+| `guidance_scale` | classifier-free guidance（无分类器引导）强度 | 条件控制 |
+| `speed` | 语速因子；大于 1 更快，小于 1 更慢 | duration（时长） |
+| `duration` | 固定输出时长，优先级高于 `speed` | 时长控制 |
+| `position_temperature` | mask 位置选择随机性 | sampling（采样） |
+| `class_temperature` | token 采样随机性 | sampling（采样） |
+
+示例：
+
+```python
+audio = model.generate(
+    text="Hello, this is a speed control test.",
+    instruct="male, young adult, american accent",
+    num_step=32,
+    guidance_scale=2.0,
+    speed=1.2,
+)
+```
+
+如果指定 `duration`：
+
+```python
+audio = model.generate(
+    text="Hello, this output should be close to ten seconds.",
+    instruct="female, moderate pitch, british accent",
+    duration=10.0,
+)
+```
+
+官方文档说明：`duration` 优先级高于 `speed`。也就是说同时传时，`speed` 会被忽略。
+
+## 15.6 口音控制实验设计
+
+如果你想验证口音控制，不要只生成一条音频就下结论。建议设计一个小实验：
+
+```text
+同一段英文文本
+同一组随机种子或尽量固定参数
+只改变 instruct 里的 accent
+分别生成 american / british / indian 等版本
+人工听测 + ASR 检查
+```
+
+示例配置：
+
+```python
+ACCENT_CASES = {
+    "us": "male, elderly, american accent",
+    "uk": "male, elderly, british accent",
+    "in": "male, elderly, indian accent",
+}
+```
+
+注意：口音判断有主观性。建议至少看三类结果：
+
+| 检查项 | 说明 |
+| --- | --- |
+| 发音准确 | 文本有没有读错 |
+| 口音方向 | 是否能听出目标口音倾向 |
+| 音质自然 | 是否因为控制过强变得怪异 |
+
+## 15.7 批量生成脚本
+
+下面脚本演示 voice design（声音设计）下的多口音批量生成。它不依赖参考音频，先验证 `instruct` 单独是否有效。
 
 ```python
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-OmniVoice 声音克隆 + 强制口音控制实战代码
-本脚本遵循无魔数定义与步骤 (1, 2, 3...) 详尽注释的开发规范。
-旨在对同一个参考男声的物理音色进行克隆，同时通过 instruct 参数强制扭曲其口音为美音、英音与印音。
-"""
+from pathlib import Path
 
-import os
-import sys
-import torch
 import soundfile as sf
+import torch
+from omnivoice import OmniVoice
 
-# ==============================================================================
-# 1. 静态常量定义 (避免任何魔数)
-# ==============================================================================
-# 官方预训练模型权重路径
-MODEL_PATH = "k2-fsa/OmniVoice"
-
-# 输出音频采样率 (24kHz)
-TARGET_SAMPLE_RATE = 24000
-
-# 用于声音克隆的本地老年男声参考音频路径
-REFERENCE_AUDIO_PATH = "reference_voice.wav"
-
-# 测试用多口音英文长句内容
-TEST_ENGLISH_TEXT = (
-    "Hello! Today, I am testing the capability of voice cloning combined with accent modification. "
-    "We are trying to keep my original voice, but speak with a new American, British, or Indian accent."
+MODEL_ID = "k2-fsa/OmniVoice"
+SAMPLE_RATE = 24000
+TEXT = (
+    "Hello, today I am testing accent control in a text to speech system. "
+    "The content is the same, but the speaker attributes are different."
 )
 
-# 精准匹配男声生理特征的口音描述配置
-ACCENT_INSTRUCTS = {
-    "US": "male, elderly, american accent",  # 美音老年男声
-    "UK": "male, elderly, british accent",  # 英音老年男声
-    "IN": "male, elderly, indian accent"   # 印音老年男声
-}
-
-# 输出音频文件名配置
-ACCENT_OUTPUT_PATHS = {
-    "US": "omnivoice_clone_accent_us.wav",
-    "UK": "omnivoice_clone_accent_uk.wav",
-    "IN": "omnivoice_clone_accent_in.wav"
+CASES = {
+    "us": "male, elderly, american accent",
+    "uk": "male, elderly, british accent",
+    "in": "male, elderly, indian accent",
 }
 
 
-# ==============================================================================
-# 2. 核心混合克隆函数
-# ==============================================================================
-def run_clone_accents_synthesis() -> bool:
-    """
-    加载模型，读取同一段物理音色，循环注入不同口音描述，生成并导出三款口音音频。
-    
-    返回:
-        bool: 是否全部口音文件均成功合成。
-    """
-    print("=" * 60)
-    print("开始执行 OmniVoice 物理音色克隆 + 多口音强制修改测试...")
-    print("=" * 60)
-
-    # --------------------------------------------------------------------------
-    # 步骤一：检测参考声音文件
-    # --------------------------------------------------------------------------
-    print("\n[步骤 1] 正在检查参考男声音频文件...")
-    if not os.path.exists(REFERENCE_AUDIO_PATH):
-        print(f"❌ 错误: 未能找到参考声音文件: {REFERENCE_AUDIO_PATH}")
-        return False
-    print(f"-> 找到参考男音: {os.path.abspath(REFERENCE_AUDIO_PATH)}")
-
-    # --------------------------------------------------------------------------
-    # 步骤二：设备检测与加速选择 (优先 MPS GPU，退回 CPU)
-    # --------------------------------------------------------------------------
-    print("\n[步骤 2] 正在检测本地可用的硬件加速...")
-    device = "cpu"
-    dtype = torch.float32
-
+def pick_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda:0"
     if torch.backends.mps.is_available():
-        device = "mps"
-        print(f"-> 检测到 Apple Silicon GPU，将优先使用加速设备: {device}")
-    else:
-        print(f"-> 未检测到 GPU 加速，将退回至通用 CPU，计算设备: {device}")
+        return "mps"
+    return "cpu"
 
-    # --------------------------------------------------------------------------
-    # 步骤三：自适应加载预训练模型
-    # --------------------------------------------------------------------------
-    print(f"\n[步骤 3] 正在加载 OmniVoice 模型: {MODEL_PATH} ...")
-    try:
-        from omnivoice import OmniVoice
-    except ImportError:
-        print("❌ 错误: 未检测到 omnivoice 库，请确保激活了虚拟环境并安装了依赖！")
-        return False
 
-    try:
-        model = OmniVoice.from_pretrained(
-            MODEL_PATH,
-            device_map=device,
-            dtype=dtype
+def main() -> None:
+    device = pick_device()
+    dtype = torch.float16 if device != "cpu" else torch.float32
+
+    model = OmniVoice.from_pretrained(
+        MODEL_ID,
+        device_map=device,
+        dtype=dtype,
+    )
+
+    out_dir = Path("omnivoice_accent_outputs")
+    out_dir.mkdir(exist_ok=True)
+
+    for name, instruct in CASES.items():
+        audio = model.generate(
+            text=TEXT,
+            instruct=instruct,
+            num_step=32,
+            guidance_scale=2.0,
         )
-        print("-> 模型成功加载！")
-    except Exception as e:
-        print(f"⚠️ 警告: 设备 {device} 加载模型失败，原因: {e}")
-        if device == "mps":
-            print("正在启动降级加载：Fallback 到 CPU 设备...")
-            try:
-                device = "cpu"
-                model = OmniVoice.from_pretrained(
-                    MODEL_PATH,
-                    device_map=device,
-                    dtype=dtype
-                )
-                print("-> CPU Fallback 成功！")
-            except Exception as ex:
-                print(f"❌ 错误: CPU Fallback 仍然失败，原因: {ex}")
-                return False
-        else:
-            return False
-
-    # --------------------------------------------------------------------------
-    # 步骤四：循环执行 [克隆 + 口音控制] 推理与导出
-    # --------------------------------------------------------------------------
-    print(f"\n[步骤 4] 开始循环执行 [物理音色 + 口音控制] 双重推理...")
-    print(f"   目标文本: {TEST_ENGLISH_TEXT}\n")
-    
-    all_success = True
-    for accent_key, instruct_str in ACCENT_INSTRUCTS.items():
-        output_file = ACCENT_OUTPUT_PATHS[accent_key]
-        print(f"--- 正在合成 [{accent_key} 强制口音克隆] ---")
-        print(f"    音色源: {REFERENCE_AUDIO_PATH}")
-        print(f"    口音指令: {instruct_str}")
-        print(f"    输出文件: {output_file}")
-        
-        try:
-            # 执行混合模式推理：物理音色由 ref_audio 决定，口音风格由 instruct 决定
-            audio_data = model.generate(
-                text=TEST_ENGLISH_TEXT,
-                ref_audio=REFERENCE_AUDIO_PATH,
-                instruct=instruct_str
-            )
-            
-            # 提取声学波形特征数据
-            waveform_data = audio_data[0]
-            
-            # 安全类型检测与维度剥离
-            if isinstance(waveform_data, torch.Tensor):
-                waveform_numpy = waveform_data.squeeze().cpu().numpy()
-            else:
-                waveform_numpy = waveform_data.squeeze()
-            
-            # 导出 WAV 波形文件
-            sf.write(output_file, waveform_numpy, TARGET_SAMPLE_RATE)
-            print(f"    -> 成功保存至: {os.path.abspath(output_file)}\n")
-            
-        except Exception as e:
-            print(f"    ❌ 合成失败，原因: {e}\n")
-            all_success = False
-
-    return all_success
-
-
-# ==============================================================================
-# 3. 脚本入口
-# ==============================================================================
-def main():
-    # 注入镜像加速，防止 HuggingFace 超时 Hang 死
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-    
-    success = run_clone_accents_synthesis()
-    if success:
-        print("\n" + "=" * 60)
-        print("恭喜！OmniVoice 本地多口音克隆测试全部圆满成功！")
-        print("=" * 60)
-        sys.exit(0)
-    else:
-        print("\n" + "=" * 60)
-        print("警告：部分或全部口音克隆生成失败，请检查上方日志。")
-        print("=" * 60)
-        sys.exit(1)
+        out_path = out_dir / f"{name}.wav"
+        sf.write(out_path, audio[0], SAMPLE_RATE)
+        print(f"saved {name}: {out_path.resolve()}")
 
 
 if __name__ == "__main__":
     main()
 ```
 
-这种音色与口音完美解耦控制的宏伟魔法，在底层究竟是如何通过数学和声学运作起来的？在下一章，我们将彻底揭开引擎的引擎盖，来一次极简的物理课！
+跑通后，再尝试加入 `ref_audio` 做组合实验，并记录结果是否真的“保留音色同时改变口音”。不要直接假设一定成功。
+
+## 15.8 可控生成的排查方法
+
+| 现象 | 优先排查 |
+| --- | --- |
+| `instruct` 不生效 | 属性是否在官方列表里，文本语言是否匹配口音 / 方言 |
+| 口音明显但音质变差 | 控制过强、属性组合冲突、采样参数不合适 |
+| 语速不对 | `speed` 和 `duration` 是否同时传入 |
+| 输出太随机 | temperature 参数是否过高 |
+| 生成太慢 | `num_step` 是否过大，是否在 CPU 上跑 |
+| 长文本不稳 | 查看 long-form chunk 参数和文本切句 |
+
+## 15.9 本章小结
+
+本章最重要的直觉：
+
+```text
+voice cloning 用 ref_audio 提供参考音色。
+voice design 用 instruct 描述目标说话人属性。
+instruct 支持性别、年龄、音高、风格、英文口音和中文方言等类别。
+num_step、guidance_scale、speed、duration 分别对应采样质量、条件强度和时长控制。
+音色、口音、韵律不是完全解耦的，组合控制要通过实验验证。
+```
+
+到这里，全书的主线闭环是：
+
+```text
+声音基础 -> 语音表征 -> TTS 模型 -> diffusion / flow -> 训练推理 -> OmniVoice 实战
+```

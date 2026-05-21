@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#27548a"/>
+    </marker>
+    <style>
+      .title{font:700 44px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#10213f}
+      .sub{font:400 22px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#334155}
+      .h{font:700 26px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#0f3b63}
+      .t{font:400 20px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#1f2937}
+      .small{font:400 18px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#475569}
+      .box{fill:#f8fbff;stroke:#8bb4e7;stroke-width:2;rx:18}
+      .accent{fill:#ecfdf5;stroke:#4aa37a;stroke-width:2;rx:18}
+      .warn{fill:#fff7ed;stroke:#f59e0b;stroke-width:2;rx:18}
+      .line{stroke:#27548a;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#ffffff"/>
+  <text x="60" y="72" class="title">第五章：语音信号的时频表示</text>
+  <text x="60" y="112" class="sub">从 waveform（波形）到 mel-spectrogram（梅尔频谱），再理解 F0、energy、duration 和 codec token</text>
+
+  <rect x="70" y="180" width="250" height="170" class="box"/>
+  <text x="105" y="225" class="h">waveform（波形）</text>
+  <path d="M105 285 C125 245,145 325,165 285 S205 245,225 285 S265 325,285 285" stroke="#2a7de1" stroke-width="5" fill="none"/>
+  <text x="105" y="325" class="small">最终音频采样点，信息完整但序列很长</text>
+
+  <rect x="405" y="180" width="250" height="170" class="box"/>
+  <text x="450" y="225" class="h">frame（帧）</text>
+  <rect x="450" y="265" width="45" height="48" fill="#dbeafe" stroke="#3b82f6"/>
+  <rect x="505" y="265" width="45" height="48" fill="#dbeafe" stroke="#3b82f6"/>
+  <rect x="560" y="265" width="45" height="48" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="435" y="325" class="small">把长音频切成短片段，便于分析</text>
+
+  <rect x="740" y="180" width="250" height="170" class="box"/>
+  <text x="775" y="225" class="h">spectrogram（频谱图）</text>
+  <rect x="790" y="260" width="150" height="65" fill="#e0f2fe" stroke="#0284c7"/>
+  <path d="M800 315 L800 270 M830 315 L830 285 M860 315 L860 250 M890 315 L890 275 M920 315 L920 292" stroke="#0369a1" stroke-width="5"/>
+  <text x="775" y="350" class="small">时间 + 频率二维表示</text>
+
+  <rect x="1075" y="180" width="250" height="170" class="accent"/>
+  <text x="1105" y="225" class="h">mel（梅尔频谱）</text>
+  <path d="M1115 315 C1150 245,1200 245,1235 315" stroke="#059669" stroke-width="6" fill="none"/>
+  <path d="M1165 315 C1190 265,1240 265,1270 315" stroke="#10b981" stroke-width="5" fill="none"/>
+  <text x="1105" y="350" class="small">更接近人耳感知，更适合模型预测</text>
+
+  <path d="M320 265 H395" class="line"/>
+  <path d="M655 265 H730" class="line"/>
+  <path d="M990 265 H1065" class="line"/>
+
+  <rect x="120" y="480" width="360" height="220" class="warn"/>
+  <text x="155" y="528" class="h">辅助韵律特征</text>
+  <text x="155" y="580" class="t">F0 / pitch（基频 / 音高）：高低走势</text>
+  <text x="155" y="625" class="t">energy（能量）：强弱力度</text>
+  <text x="155" y="670" class="t">duration（时长）：每个音占多少帧</text>
+
+  <rect x="600" y="480" width="360" height="220" class="box"/>
+  <text x="635" y="528" class="h">声学模型输出</text>
+  <text x="635" y="580" class="t">文本 / 音素 + 条件</text>
+  <text x="635" y="625" class="t">→ mel / latent / codec token</text>
+  <text x="635" y="670" class="small">生成的是中间声学表示，不是最终音频</text>
+
+  <rect x="1080" y="480" width="360" height="220" class="accent"/>
+  <text x="1115" y="528" class="h">vocoder（声码器）</text>
+  <text x="1115" y="580" class="t">mel / latent / codec token</text>
+  <text x="1115" y="625" class="t">→ waveform（波形）</text>
+  <text x="1115" y="670" class="small">补回波形细节，输出可播放音频</text>
+
+  <path d="M480 590 H590" class="line"/>
+  <path d="M960 590 H1070" class="line"/>
+  <text x="90" y="810" class="sub">要点：mel、latent、codec token 都是混合表示，通常同时包含内容、音色、韵律和情绪。</text>
+</svg>

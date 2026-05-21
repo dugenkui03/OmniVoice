@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 Z" fill="#27548a"/></marker>
+    <style>
+      .title{font:700 44px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#10213f}
+      .sub{font:400 22px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#334155}
+      .h{font:700 23px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#0f3b63}
+      .t{font:400 18px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#1f2937}
+      .box{fill:#f8fbff;stroke:#8bb4e7;stroke-width:2;rx:18}
+      .warn{fill:#fff7ed;stroke:#f59e0b;stroke-width:2;rx:18}
+      .line{stroke:#27548a;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#fff"/>
+  <text x="60" y="74" class="title">第十一章：训练工程</text>
+  <text x="60" y="114" class="sub">TTS 训练不是只调模型：数据、特征、对齐、mask 和 loss 都会决定结果</text>
+
+  <g transform="translate(70,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">原始数据</text><text x="28" y="88" class="t">文本 + 音频</text><text x="28" y="118" class="t">speaker / style</text></g>
+  <g transform="translate(300,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">数据清洗</text><text x="28" y="88" class="t">去噪、切分</text><text x="28" y="118" class="t">采样率统一</text></g>
+  <g transform="translate(530,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">特征提取</text><text x="28" y="88" class="t">mel / F0</text><text x="28" y="118" class="t">energy</text></g>
+  <g transform="translate(760,210)"><rect width="190" height="145" class="warn"/><text x="28" y="48" class="h">对齐</text><text x="28" y="88" class="t">phoneme 到帧</text><text x="28" y="118" class="t">duration</text></g>
+  <g transform="translate(990,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">batch / mask</text><text x="28" y="88" class="t">padding</text><text x="28" y="118" class="t">只算真实位置</text></g>
+  <g transform="translate(1220,210)"><rect width="190" height="145" class="box"/><text x="28" y="48" class="h">loss / ckpt</text><text x="28" y="88" class="t">训练目标</text><text x="28" y="118" class="t">模型快照</text></g>
+
+  <path d="M260 282 H290" class="line"/><path d="M490 282 H520" class="line"/><path d="M720 282 H750" class="line"/><path d="M950 282 H980" class="line"/><path d="M1180 282 H1210" class="line"/>
+
+  <rect x="230" y="510" width="520" height="170" class="warn"/>
+  <text x="270" y="560" class="h">最容易出问题</text>
+  <text x="270" y="610" class="t">文本音频不匹配、坏样本、静音过长</text>
+  <text x="270" y="650" class="t">mel 参数与 vocoder 不一致、mask 维度错</text>
+
+  <rect x="850" y="510" width="520" height="170" class="box"/>
+  <text x="890" y="560" class="h">diffusion TTS 训练</text>
+  <text x="890" y="610" class="t">x0 加噪得到 xt，输入 timestep 和条件</text>
+  <text x="890" y="650" class="t">预测 noise / x0 / score / velocity</text>
+</svg>

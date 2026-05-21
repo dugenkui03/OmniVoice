@@ -96,6 +96,17 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 ```text
 books/
 ├── TODO_基本原理补充.md
+├── images/
+│   ├── chapter03_人声产生机制_source_filter_model.jpg
+│   ├── chapter04_文本前端与音素_文本前端流程图.png
+│   ├── chapter05_语音信号的时频表示_声学表示流程图.svg
+│   ├── chapter06_语音信息分解_特征分工图.svg
+│   ├── chapter07_TTS模型的历史演化_路线图.svg
+│   ├── chapter08_声学模型_结构图.svg
+│   ├── chapter09_Vocoder与波形生成_还原链路图.svg
+│   ├── chapter10_扩散模型与新一代TTS_生成空间图.svg
+│   ├── chapter11_训练工程_训练流水线图.svg
+│   └── chapter12_推理控制评测与部署_服务链路图.svg
 ├── chapter00_书籍介绍中.md
 ├── chapter01_TTS到底在解决什么问题.md
 ├── chapter02_声音是什么.md

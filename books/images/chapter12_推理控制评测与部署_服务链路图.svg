@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M2,2 L10,6 L2,10 Z" fill="#27548a"/></marker>
+    <style>
+      .title{font:700 44px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#10213f}
+      .sub{font:400 22px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#334155}
+      .h{font:700 23px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#0f3b63}
+      .t{font:400 18px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;fill:#1f2937}
+      .box{fill:#f8fbff;stroke:#8bb4e7;stroke-width:2;rx:18}
+      .ctrl{fill:#f5f3ff;stroke:#8b5cf6;stroke-width:2;rx:18}
+      .mon{fill:#ecfdf5;stroke:#10b981;stroke-width:2;rx:18}
+      .line{stroke:#27548a;stroke-width:4;fill:none;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1600" height="900" fill="#fff"/>
+  <text x="60" y="74" class="title">第十二章：推理、控制、评测与部署</text>
+  <text x="60" y="114" class="sub">从“模型能跑”到“服务稳定”：链路、控制、指标和监控都要一起看</text>
+
+  <g transform="translate(80,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">输入文本</text><text x="28" y="88" class="t">长文本、数字</text><text x="28" y="118" class="t">中英混读</text></g>
+  <g transform="translate(330,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">文本前端</text><text x="28" y="88" class="t">规范化</text><text x="28" y="118" class="t">G2P / 韵律</text></g>
+  <g transform="translate(580,220)"><rect width="220" height="145" class="box"/><text x="28" y="48" class="h">声学模型</text><text x="28" y="88" class="t">mel / latent</text><text x="28" y="118" class="t">codec token</text></g>
+  <g transform="translate(850,220)"><rect width="220" height="145" class="box"/><text x="28" y="48" class="h">vocoder / decoder</text><text x="28" y="88" class="t">还原 waveform</text><text x="28" y="118" class="t">音质细节</text></g>
+  <g transform="translate(1120,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">后处理</text><text x="28" y="88" class="t">响度、格式</text><text x="28" y="118" class="t">切句拼接</text></g>
+  <g transform="translate(1370,220)"><rect width="150" height="145" class="mon"/><text x="28" y="48" class="h">输出</text><text x="28" y="88" class="t">wav / stream</text></g>
+  <path d="M280 292 H320" class="line"/><path d="M530 292 H570" class="line"/><path d="M800 292 H840" class="line"/><path d="M1070 292 H1110" class="line"/><path d="M1320 292 H1360" class="line"/>
+
+  <rect x="230" y="510" width="360" height="180" class="ctrl"/>
+  <text x="270" y="560" class="h">控制条件</text>
+  <text x="270" y="610" class="t">speaker / emotion / style</text>
+  <text x="270" y="650" class="t">speed / pitch / energy / pause</text>
+
+  <rect x="620" y="510" width="360" height="180" class="mon"/>
+  <text x="660" y="560" class="h">评测指标</text>
+  <text x="660" y="610" class="t">MOS / WER / speaker similarity</text>
+  <text x="660" y="650" class="t">RTF / P95 / bad case</text>
+
+  <rect x="1010" y="510" width="360" height="180" class="box"/>
+  <text x="1050" y="560" class="h">部署优化</text>
+  <text x="1050" y="610" class="t">缓存条件、减少采样步数</text>
+  <text x="1050" y="650" class="t">ONNX / TensorRT / batch</text>
+</svg>
