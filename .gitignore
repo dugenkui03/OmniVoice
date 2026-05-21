@@ -20,6 +20,7 @@ build/
 /download
 /local/
 /run*
+/projects/
 example.py
 results/
 examples/data*
