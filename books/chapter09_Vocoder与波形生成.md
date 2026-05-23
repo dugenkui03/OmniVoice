@@ -50,7 +50,7 @@ vocoder 像一个高质量解码器和细节补全器。
 
 | 模块 | 输入 | 输出 | 主要负责 |
 | --- | --- | --- | --- |
-| acoustic model（声学模型） | 文本、音素、说话人、风格 | mel / latent / codec token | 说什么、怎么读、韵律大结构 |
+| acoustic model（声学模型） | 文本、音素、说话人、风格 | mel / latent / codec token | 谁在说、说什么、说话方式、发音结构 |
 | vocoder（声码器） | mel / latent / codec representation | waveform | 音质、细节、清晰度、真实感 |
 
 排错时可以先用这条经验：

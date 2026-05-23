@@ -34,20 +34,17 @@
 核心知识地图：
 
 ```text
-文本内容：
-character（字符） / phoneme（音素） / pinyin（拼音） / BPE（子词切分）
-
-发音结构：
-phoneme（音素）, tone（声调）, stress（重音）, syllable（音节）
-
-韵律：
-duration（时长）, pitch/F0（音高/基频）, energy（能量）, pause（停顿）, rhythm（节奏）
-
 说话人 / 音色：
 speaker embedding（说话人向量）, d-vector（声纹向量）, prompt speech（提示语音）
 
-情绪 / 风格：
-emotion embedding（情绪向量）, style embedding（风格向量）, reference encoder（参考编码器）, prosody embedding（韵律向量）
+文本内容：
+character（字符） / phoneme（音素） / pinyin（拼音） / BPE（子词切分）
+
+说话方式 / 韵律 / 情绪 / 风格：
+duration（时长）, pitch/F0（音高/基频）, energy（能量）, pause（停顿）, rhythm（节奏）, emotion embedding（情绪向量）, style embedding（风格向量）, reference encoder（参考编码器）, prosody embedding（韵律向量）
+
+发音结构：
+phoneme（音素）, tone（声调）, stress（重音）, syllable（音节）
 
 声学表征：
 mel-spectrogram（梅尔频谱）, linear spectrogram（线性频谱）, codec latent（编码潜变量）, acoustic token（声学 token）
@@ -61,7 +58,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 
 一句话总结：
 
-> 研究扩散 TTS 的关键，不只是学 diffusion，而是先搞清楚 TTS 把“说什么、谁在说、怎么说、情绪如何”分别放进了哪些表示和条件里；然后再理解 diffusion / flow matching 是在 mel、waveform、latent 还是 codec token 空间里做生成。
+> 研究扩散 TTS 的关键，不只是学 diffusion，而是先搞清楚 TTS 把“谁在说、说了什么、说话方式、发音结构”分别放进了哪些表示和条件里；然后再理解 diffusion / flow matching 是在 mel、waveform、latent 还是 codec token 空间里做生成。
 
 ## 总目录
 
@@ -72,7 +69,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 3. [人声的产生机制：声带、基频与共振峰](chapter03_人声的产生机制.md)
 4. [文本前端与音素：文字不是发音](chapter04_文本前端与音素.md)
 5. [语音信号的时频表示：mel、F0、energy 与 codec token](chapter05_语音信号的时频表示.md)
-6. [语音信息分解：表征、音色、韵律与情绪](chapter06_语音信息分解.md)
+6. [语音信息分解：音色、内容、说话方式与发音结构](chapter06_语音信息分解.md)
 
 ### 第二编：TTS 模型技术
 
@@ -100,8 +97,8 @@ books/
 ├── images/
 │   ├── chapter03_人声产生机制_source_filter_model.jpg
 │   ├── chapter04_文本前端与音素_文本前端流程图.png
-│   ├── chapter05_语音信号的时频表示_声学表示流程图.svg
-│   ├── chapter06_语音信息分解_特征分工图.svg
+│   ├── chapter05_语音信号的时频表示_声学表示流程图.png
+│   ├── chapter06_语音信息分解_语音信息分解总览图.png
 │   ├── chapter07_TTS模型的历史演化_路线图.svg
 │   ├── chapter08_声学模型_结构图.svg
 │   ├── chapter09_Vocoder与波形生成_还原链路图.svg
@@ -139,7 +136,7 @@ books/
 | 第 3 章：人声的产生机制 | 人声声学基础 | 补充 source-filter model、F0、formant、vocal tract、清浊音、元音辅音 |
 | 第 4 章：文本前端与音素 | 文本到发音结构 | 补充 text normalization、G2P、拼音、音素、声调、多音字、韵律边界 |
 | 第 5 章：语音信号的时频表示 | 模型常用声学表示 | 补充 STFT、spectrogram、mel、F0、energy、duration、codec token 的区别 |
-| 第 6 章：语音信息分解 | 内容、音色、情绪、风格的特征分工 | 补充 speaker embedding、style embedding、prompt speech、特征解耦和混合表示 |
+| 第 6 章：语音信息分解 | 音色、内容、说话方式、发音结构的特征分工 | 补充 speaker embedding、style embedding、prompt speech、发音结构、特征解耦和混合表示 |
 | 第 7 章：TTS 模型的历史演化 | 模型路线图 | 补充 Tacotron、FastSpeech、VITS、Diffusion、Flow Matching 的演化逻辑 |
 | 第 8 章：声学模型 | 文本/音素到声学表示 | 补充 encoder、decoder、attention、duration、variance adaptor、latent variable |
 | 第 9 章：Vocoder 与波形生成 | 声学表示到 waveform | 补充 HiFi-GAN、DiffWave、BigVGAN、GAN loss、diffusion vocoder |
@@ -158,7 +155,7 @@ books/
 ```text
 第 1 章：TTS 任务
 第 5 章：mel / F0 / energy / duration
-第 6 章：内容、音色、情绪、风格分解
+第 6 章：音色、内容、说话方式、发音结构分解
 第 8-10 章：声学模型、vocoder、diffusion / flow matching
 第 11 章：工程视角下理解模型交付物
 第 12-13 章：训练、推理、评测、部署

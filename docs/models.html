@@ -270,6 +270,698 @@
       background: #fff;
     }
 
+    .chapter-figure {
+      margin: 22px 0 28px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow-x: auto;
+    }
+
+    .chapter-figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+    }
+
+    .signal-infographic {
+      margin: 22px 0 28px;
+      padding: 18px;
+      border: 2px solid #2e6cc9;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 16px 40px rgba(24, 32, 47, 0.1);
+      color: #111a42;
+    }
+
+    .signal-title {
+      margin: 0;
+      text-align: center;
+      color: #0b1550;
+      font-size: 30px;
+      line-height: 1.22;
+      font-weight: 850;
+    }
+
+    .signal-subtitle {
+      margin: 6px 0 16px;
+      text-align: center;
+      color: #56616f;
+      font-size: 16px;
+      font-weight: 650;
+    }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1.35fr 1fr;
+      gap: 10px;
+    }
+
+    .signal-panel {
+      min-width: 0;
+      padding: 12px;
+      border: 1.5px solid #2e6cc9;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #fff, #f8fbff);
+    }
+
+    .signal-panel.teal {
+      border-color: #128f91;
+    }
+
+    .signal-panel.wide {
+      grid-column: span 2;
+    }
+
+    .panel-head {
+      display: inline-block;
+      margin: -2px 0 12px;
+      padding: 5px 12px;
+      border-radius: 5px;
+      background: linear-gradient(90deg, #1e64c8, #2d78e4);
+      color: #fff;
+      font-weight: 800;
+      font-size: 16px;
+    }
+
+    .signal-panel.teal .panel-head {
+      background: linear-gradient(90deg, #128f91, #21a7a0);
+    }
+
+    .mini-wave {
+      height: 44px;
+      margin: 6px 0 8px;
+      background:
+        radial-gradient(ellipse at 18% 50%, transparent 18px, #2e6cc9 19px, transparent 20px),
+        repeating-linear-gradient(90deg, transparent 0 12px, rgba(46, 108, 201, 0.18) 12px 13px);
+      clip-path: polygon(0 50%, 4% 40%, 8% 55%, 12% 28%, 16% 62%, 20% 34%, 24% 70%, 28% 42%, 32% 58%, 36% 26%, 40% 52%, 44% 44%, 48% 66%, 52% 35%, 56% 56%, 60% 47%, 64% 62%, 68% 35%, 72% 53%, 76% 44%, 80% 62%, 84% 50%, 88% 57%, 92% 46%, 96% 51%, 100% 50%);
+    }
+
+    .formula {
+      margin: 0 0 10px;
+      text-align: center;
+      color: #263149;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 18px;
+    }
+
+    .reason-list,
+    .control-list,
+    .reminder-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .reason-list li,
+    .control-list li,
+    .reminder-list li {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 8px;
+      align-items: center;
+      min-height: 43px;
+      padding: 8px 10px;
+      border: 1px solid #91b5e9;
+      border-radius: 6px;
+      background: #fff;
+      color: #202a3d;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .reason-list .icon,
+    .control-list .icon,
+    .reminder-list .icon {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #eaf2ff;
+      color: #1f64c8;
+      font-weight: 850;
+      font-size: 17px;
+    }
+
+    .pipeline-strip,
+    .codec-strip {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(78px, 1fr);
+      gap: 6px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #b7c8df;
+      border-radius: 7px;
+      background: #f9fbff;
+      font-size: 12px;
+      font-weight: 750;
+      text-align: center;
+    }
+
+    .pipeline-strip span,
+    .codec-strip span {
+      padding: 7px 6px;
+      border: 1px solid #9fc6b5;
+      border-radius: 5px;
+      background: #fff;
+    }
+
+    .pipeline-strip b,
+    .codec-strip b {
+      color: #1d65c6;
+    }
+
+    .tf-flow {
+      display: grid;
+      grid-template-columns: 0.75fr 0.65fr 0.18fr 0.9fr 0.18fr 0.9fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tf-item {
+      min-height: 178px;
+      padding: 8px;
+      border-radius: 7px;
+      background: #fff;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .tf-arrow {
+      color: #233452;
+      font-size: 24px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .frames {
+      height: 82px;
+      margin: 18px auto 10px;
+      width: 92px;
+      background:
+        linear-gradient(90deg, transparent 0 17px, rgba(46,108,201,0.22) 17px 32px, transparent 32px 47px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.6) 0 20px, rgba(46,108,201,0.18) 20px 22px);
+      border: 1px solid #7897bd;
+    }
+
+    .spectrogram,
+    .melmap {
+      height: 112px;
+      margin: 8px auto 10px;
+      width: 120px;
+      border: 1px solid #263149;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 7px, transparent 7px 12px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 5px, transparent 5px 11px),
+        linear-gradient(135deg, #09062d, #541c91 28%, #d84e68 58%, #ffd45c);
+    }
+
+    .melmap {
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 8px, transparent 8px 13px),
+        linear-gradient(135deg, #092137, #0e7a7d 36%, #6ec17a 68%, #f6db57);
+    }
+
+    .tf-note {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tf-note span {
+      padding: 8px;
+      border: 1px solid #91b5e9;
+      border-radius: 6px;
+      background: #f6f9ff;
+      color: #2362bd;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .control-list li {
+      border-color: #98d0ce;
+    }
+
+    .control-list .icon {
+      background: #e9f8f6;
+      color: #128f91;
+    }
+
+    .token-row {
+      display: grid;
+      grid-template-columns: 68px repeat(9, 1fr);
+      gap: 3px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 9px;
+      border: 1px dashed #b9c2cf;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .token-row span {
+      padding: 4px 0;
+      border-radius: 4px;
+      background: #f1f5fa;
+    }
+
+    .duration-flow {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .duration-flow span {
+      padding: 8px 4px;
+      border: 1px solid #8bc4c0;
+      border-radius: 5px;
+      background: #f5fffd;
+      color: #0d7678;
+      font-weight: 800;
+    }
+
+    .codec-line {
+      display: grid;
+      grid-template-columns: 1fr 0.15fr 0.8fr 0.15fr 1fr 0.15fr 0.8fr 0.15fr 1fr;
+      gap: 6px;
+      align-items: center;
+      margin: 8px 0 12px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .codec-box {
+      min-height: 58px;
+      padding: 10px 6px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #c4d4e8;
+    }
+
+    .tokens {
+      display: flex;
+      justify-content: center;
+      gap: 5px;
+      padding: 12px 0;
+    }
+
+    .tokens span {
+      display: block;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: #2fb485;
+    }
+
+    .tokens span:nth-child(2) { background: #6bc771; }
+    .tokens span:nth-child(3) { background: #f2c746; }
+    .tokens span:nth-child(4) { background: #f3973d; }
+    .tokens span:nth-child(5) { background: #ad70d6; }
+    .tokens span:nth-child(6) { background: #6b83e8; }
+
+    .compare-table {
+      width: 100%;
+      margin: 8px 0 0;
+      font-size: 13px;
+    }
+
+    .compare-table th {
+      background: #1f65bd;
+      color: #fff;
+      text-align: center;
+    }
+
+    .compare-table td {
+      padding: 8px;
+      text-align: center;
+    }
+
+    .mixed-box {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .mixed-core {
+      padding: 22px;
+      border: 1px solid #84c4c0;
+      border-radius: 8px;
+      background: #fff;
+      text-align: center;
+      font-weight: 850;
+      font-size: 17px;
+    }
+
+    .reminder-list li {
+      grid-template-columns: 34px 1fr;
+      border-color: #a8d5d2;
+    }
+
+    .reminder-list .icon {
+      background: #eaf8f7;
+      color: #138f91;
+    }
+
+    .bottom-legend {
+      display: grid;
+      grid-template-columns: 1.1fr repeat(7, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #2e6cc9;
+      border-radius: 7px;
+      background: #f9fbff;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .bottom-legend span {
+      display: grid;
+      place-items: center;
+      min-height: 36px;
+      padding: 4px;
+      border-right: 1px solid #c5d3e4;
+    }
+
+    .bottom-legend span:last-child {
+      border-right: 0;
+    }
+
+    .history-infographic {
+      margin: 22px 0 28px;
+      padding: 18px;
+      border: 2px solid #2a67d8;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      box-shadow: 0 16px 40px rgba(24, 32, 47, 0.1);
+      color: #101b46;
+    }
+
+    .history-title {
+      margin: 0;
+      color: #0b2b73;
+      text-align: center;
+      font-size: 34px;
+      line-height: 1.18;
+      font-weight: 900;
+    }
+
+    .history-subtitle {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin: 6px 0 18px;
+      color: #0c61c7;
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 850;
+    }
+
+    .history-subtitle::before,
+    .history-subtitle::after {
+      content: "";
+      width: 180px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #6da1eb);
+    }
+
+    .history-subtitle::after {
+      background: linear-gradient(90deg, #6da1eb, transparent);
+    }
+
+    .era-row {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .era-card {
+      position: relative;
+      min-height: 316px;
+      padding: 12px 10px;
+      border: 1.5px solid #4f8ded;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: inset 0 0 0 1px rgba(79, 141, 237, 0.06);
+    }
+
+    .era-card::after {
+      content: "›";
+      position: absolute;
+      top: 118px;
+      right: -16px;
+      color: #1d6fe0;
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1;
+      z-index: 2;
+    }
+
+    .era-card:last-child::after {
+      display: none;
+    }
+
+    .era-head {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      align-items: center;
+      min-height: 40px;
+      font-weight: 850;
+      line-height: 1.18;
+    }
+
+    .era-num {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #1267d8;
+      color: #fff;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .era-sub {
+      display: block;
+      color: #202b4b;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .era-icon {
+      display: grid;
+      place-items: center;
+      height: 70px;
+      margin: 8px 0;
+      color: #145fbf;
+      font-size: 38px;
+      font-weight: 900;
+    }
+
+    .era-flow {
+      min-height: 36px;
+      margin: 4px 0 8px;
+      color: #17213a;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+      font-weight: 750;
+    }
+
+    .era-list {
+      margin: 0;
+      padding: 9px 0 0;
+      border-top: 1px solid #c8dcfb;
+      list-style: none;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .era-list strong {
+      display: block;
+      margin-bottom: 3px;
+      color: #00875a;
+    }
+
+    .era-list.problems {
+      margin-top: 9px;
+    }
+
+    .era-list.problems strong {
+      color: #d11f1f;
+    }
+
+    .era-list li {
+      margin: 2px 0;
+      padding-left: 12px;
+      position: relative;
+    }
+
+    .era-list li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: currentColor;
+      font-weight: 900;
+    }
+
+    .logic-band {
+      display: grid;
+      grid-template-columns: 0.65fr 1.55fr 1.65fr 2.1fr;
+      gap: 0;
+      align-items: center;
+      margin: 18px 0 14px;
+      color: #fff;
+      font-size: 22px;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .logic-label {
+      color: #0a3f9e;
+      background: #fff;
+      font-size: 19px;
+      line-height: 1.2;
+    }
+
+    .logic-step {
+      min-height: 68px;
+      display: grid;
+      place-items: center;
+      padding: 10px;
+      clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 50%, calc(100% - 28px) 100%, 0 100%, 28px 50%);
+      margin-left: -22px;
+      background: linear-gradient(90deg, #6fb5ff, #2771d9);
+    }
+
+    .logic-step:first-of-type {
+      margin-left: 0;
+      clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 50%, calc(100% - 28px) 100%, 0 100%);
+    }
+
+    .logic-step.teal {
+      background: linear-gradient(90deg, #36b8b8, #21a3a8);
+    }
+
+    .logic-step.deep {
+      background: linear-gradient(90deg, #156bdc, #0048b8);
+    }
+
+    .history-lower {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .today-box,
+    .history-points {
+      padding: 14px;
+      border: 1.5px solid #3a83e8;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .today-box h4,
+    .history-points h4 {
+      margin: 0 0 12px;
+      color: #0a4fb6;
+      text-align: center;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    .today-paths {
+      display: grid;
+      gap: 10px;
+    }
+
+    .path-row {
+      display: grid;
+      grid-template-columns: 0.9fr 0.24fr 1fr 0.24fr 1fr;
+      gap: 8px;
+      align-items: center;
+      color: #17213a;
+      font-size: 13px;
+      font-weight: 760;
+      text-align: center;
+    }
+
+    .path-row.long {
+      grid-template-columns: 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr;
+    }
+
+    .path-node {
+      min-height: 48px;
+      display: grid;
+      place-items: center;
+      padding: 7px;
+      border: 1px solid #5697e8;
+      border-radius: 7px;
+      background: #fafdff;
+    }
+
+    .path-arrow {
+      color: #0e64cf;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .history-points ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .history-points li {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 10px;
+      align-items: center;
+      min-height: 42px;
+      border-bottom: 1px dashed #b5cff5;
+      color: #18223d;
+      font-size: 16px;
+    }
+
+    .history-points li:last-child {
+      border-bottom: 0;
+    }
+
+    .check {
+      display: grid;
+      place-items: center;
+      width: 25px;
+      height: 25px;
+      border-radius: 50%;
+      background: #1778dc;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
     .footer {
       margin-top: 56px;
       padding-top: 22px;
@@ -281,8 +973,44 @@
     @media (max-width: 820px) {
       .grid,
       .two-col,
-      .model-map {
+      .model-map,
+      .signal-grid,
+      .mixed-box,
+      .bottom-legend,
+      .era-row,
+      .logic-band,
+      .history-lower,
+      .path-row,
+      .path-row.long {
         grid-template-columns: 1fr;
+      }
+
+      .signal-panel.wide {
+        grid-column: span 1;
+      }
+
+      .tf-flow,
+      .codec-line {
+        grid-template-columns: 1fr;
+      }
+
+      .tf-arrow {
+        transform: rotate(90deg);
+      }
+
+      .era-card::after {
+        display: none;
+      }
+
+      .logic-step,
+      .logic-step:first-of-type {
+        margin-left: 0;
+        clip-path: none;
+      }
+
+      .history-subtitle::before,
+      .history-subtitle::after {
+        width: 40px;
       }
 
       .model-map {
@@ -774,6 +1502,11 @@ flowchart TD
     </div>
 
     <div class="article-section">
+      <h2>第五章：语音信号的时频表示与 codec token</h2>
+      <div class="chapter-figure">
+        <img src="../books/images/chapter05_%E8%AF%AD%E9%9F%B3%E4%BF%A1%E5%8F%B7%E7%9A%84%E6%97%B6%E9%A2%91%E8%A1%A8%E7%A4%BA_%E5%A3%B0%E5%AD%A6%E8%A1%A8%E7%A4%BA%E6%B5%81%E7%A8%8B%E5%9B%BE.png" alt="第五章：语音信号的时频表示，解释 mel、F0、energy 与 codec token">
+      </div>
+
       <h2>音频 tokenizer：不是辅助文件，而是第二个关键模型</h2>
       <p>
         <code>.models/OmniVoice/audio_tokenizer</code> 里保存的是 HiggsAudioV2TokenizerModel。它在工程中的地位很高，因为 OmniVoice 主模型学习和生成的对象都是“音频 token”，不是原始波形。
@@ -845,7 +1578,130 @@ flowchart LR
     </div>
 
     <div class="article-section">
-      <h2>评估模型：eval/models 不是主模型</h2>
+      <h2>第七章：TTS 模型的历史演化</h2>
+      <div class="history-infographic">
+        <h3 class="history-title">第七章：TTS 模型的历史演化</h3>
+        <div class="history-subtitle">从规则系统到生成式模型</div>
+
+        <div class="era-row">
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">1</span><span>规则合成</span></div>
+            <div class="era-icon">⚙</div>
+            <div class="era-flow">人工规则 →<br>声学参数 → 波形</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>可解释</li><li>可控</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>声音机械</li><li>规则难维护</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">2</span><span>拼接式合成</span></div>
+            <div class="era-icon">▣</div>
+            <div class="era-flow">录音片段检索<br>与拼接</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然</li><li>真实片段</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖录音库</li><li>泛化差</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">3</span><span>HMM TTS</span></div>
+            <div class="era-icon">▥</div>
+            <div class="era-flow">文本特征 →<br>统计参数 → vocoder</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>稳定</li><li>体积小</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>过度平滑</li><li>不够自然</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">4</span><span>Tacotron 类<span class="era-sub">Tacotron</span></span></div>
+            <div class="era-icon">◎</div>
+            <div class="era-flow">text → mel,<br>attention, 对齐</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然度提升</li><li>端到端</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>自回归慢</li><li>对齐易错</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">5</span><span>FastSpeech 类<span class="era-sub">FastSpeech</span></span></div>
+            <div class="era-icon">▥</div>
+            <div class="era-flow">显式 duration,<br>并行生成 mel</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>快</li><li>稳定可控</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖对齐</li><li>依赖时长监督</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">6</span><span>VITS 类<span class="era-sub">VITS</span></span></div>
+            <div class="era-icon">◉</div>
+            <div class="era-flow">latent + flow + GAN,<br>端到端</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>音质强</li><li>一对多建模</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>训练复杂</li><li>调试难</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">7</span><span>Diffusion / Flow<span class="era-sub">Diffusion / Flow</span></span></div>
+            <div class="era-icon">☁</div>
+            <div class="era-flow">噪声 →<br>多步生成语音表示</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然</li><li>多样性强</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>推理较慢</li><li>控制复杂</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">8</span><span>Codec / Speech LM<span class="era-sub">Codec / Speech LM</span></span></div>
+            <div class="era-icon">▦</div>
+            <div class="era-flow">语音 token 化后<br>建模</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>适合大模型范式</li><li>支持 zero-shot</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖 codec</li><li>token 设计复杂</li></ul>
+          </div>
+        </div>
+
+        <div class="logic-band">
+          <div class="logic-label">核心演化<br>逻辑</div>
+          <div class="logic-step">人工规则 / 片段拼接</div>
+          <div class="logic-step teal">统计参数 / 神经声学模型</div>
+          <div class="logic-step deep">生成式建模 / 语音 token 建模</div>
+        </div>
+
+        <div class="history-lower">
+          <div class="today-box">
+            <h4>今天的主流不止一条</h4>
+            <div class="today-paths">
+              <div class="path-row">
+                <div class="path-node">文本 / 音素</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">声学模型</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">vocoder</div>
+              </div>
+              <div class="path-row">
+                <div class="path-node">文本 / 音素</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">diffusion / flow</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">mel / latent / waveform</div>
+              </div>
+              <div class="path-row long">
+                <div class="path-node">waveform</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">codec encoder</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">token</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">生成模型</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">codec decoder</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="history-points">
+            <h4>本章重点</h4>
+            <ul>
+              <li><span class="check">✓</span><span>每一代模型都在解决新的工程问题</span></li>
+              <li><span class="check">✓</span><span>关注点：音质、速度、稳定性、可控性</span></li>
+              <li><span class="check">✓</span><span>Tacotron 提升自然度，但存在对齐和速度问题</span></li>
+              <li><span class="check">✓</span><span>FastSpeech 强调显式时长与并行生成</span></li>
+              <li><span class="check">✓</span><span>Diffusion / Codec 路线更贴近新一代生成式语音模型</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <h3>补充：评估模型 eval/models 不是主模型</h3>
       <p>
         <code>omnivoice/eval/models</code> 下面的模型容易被误认为 OmniVoice 主体的一部分，但它们主要服务于评估。
       </p>

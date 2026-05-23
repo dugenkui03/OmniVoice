@@ -138,12 +138,12 @@ c = text, phoneme, speaker, emotion, style, prompt speech, language
 
 | 条件 | 控制什么 |
 | --- | --- |
-| text / phoneme（文本 / 音素） | 说什么、怎么读 |
+| text / phoneme（文本 / 音素） | 说什么、发音结构 |
 | duration（时长） | 每个音持续多久 |
 | pitch / F0（音高 / 基频） | 语调和音高走势 |
 | energy（能量） | 强弱和力度 |
 | speaker embedding（说话人向量） | 谁在说 |
-| emotion / style（情绪 / 风格） | 怎么说 |
+| emotion / style（情绪 / 风格） | 说话方式 |
 | prompt speech（提示语音） | 参考音色和说话方式 |
 
 常见条件注入方式：
