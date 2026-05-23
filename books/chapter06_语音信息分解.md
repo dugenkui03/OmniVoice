@@ -545,6 +545,58 @@ flowchart LR
 
 也不要把模型输出理解成“直接输出声音”。在 codec token 路线里，模型通常输出的是 audio token，后面还需要 codec decoder 或 vocoder 把 token 还原成 waveform（波形）。所以更准确的说法是：输入的文本和音频标签会转成 token / embedding；模型根据这些条件预测 audio token；最后由解码器把 audio token 变成声音。
 
+### 6.7.4 声音克隆 TTS：不是替换内容，而是条件生成
+
+voice cloning TTS（声音克隆文本转语音）很容易被误解成：先把参考音频编码成 token，再把里面代表“说什么”的 token 替换成目标文本，最后得到新的音频。
+
+这个说法有一定直觉价值，但并不准确。更准确的理解是：
+
+```text
+参考音频提供“像谁说、可能怎么说”的条件。
+目标文本提供“要说什么”的条件。
+模型根据这些条件重新生成一段新的声学表示。
+```
+
+也就是说，声音克隆不是在原始音频 token 上做“内容替换”，而是把参考音频当成 prompt speech（提示语音）或 speaker condition（说话人条件），再让模型围绕目标文本生成新的 audio token、mel-spectrogram 或 latent。
+
+```mermaid
+flowchart LR
+    A["参考音频<br/>目标音色 / 说话习惯"] --> B["audio tokenizer / speaker encoder<br/>prompt token 或 speaker 表征"]
+    C["目标文本<br/>新的语言内容"] --> D["text tokenizer / text encoder<br/>文本表征"]
+    B --> E["TTS 模型<br/>融合条件并生成"]
+    D --> E
+    E --> F["新的 audio token / mel / latent"]
+    F --> G["codec decoder / vocoder"]
+    G --> H["最终 waveform"]
+```
+
+一些强调解耦的模型，会试图把输入条件拆得更清楚：
+
+```text
+text condition：说什么
+speaker condition：谁在说
+emotion / style condition：怎么说
+```
+
+这些条件进入模型后，并不是像剪纸一样从三个向量里各自摘下一块再拼成结果。更常见的是，它们通过 attention（注意力）、condition embedding（条件向量）、prompt token（提示 token）或其他融合结构共同影响生成过程。
+
+因此，可以把这类模型理解为：
+
+```mermaid
+flowchart LR
+    A["文本条件<br/>说什么"] --> D["模型内部融合<br/>注意力 / 条件向量 / prompt token"]
+    B["音色条件<br/>谁在说"] --> D
+    C["情绪和风格条件<br/>怎么说"] --> D
+    D --> E["预测新的声学表示"]
+    E --> F["还原成声音"]
+```
+
+一句话总结：
+
+> 声音克隆 TTS 不是“把原声音里的内容 token 换成新文本”，而是“用参考音频提供音色和说话方式线索，用目标文本提供内容线索，再由模型重新生成一段新声音”。
+
+本章先建立“哪些信息需要被表示和解耦”的概念。模型如何在训练中学会这些关系，见第十二章；模型如何在推理时使用文本、参考音频和 audio tag 生成声音，见第十三章。
+
 ## 6.8 TTS 中的特征分工
 
 下面这张表是工程建模视角，不是绝对物理真理。

@@ -1,4 +1,4 @@
-# 第十五章：OmniVoice 本地实战 —— 零样本声音克隆
+# 第十六章：OmniVoice 本地实战 —— 零样本声音克隆
 
 本章从理论走向实践：在本地跑通 k2-fsa/OmniVoice 的 zero-shot voice cloning（零样本声音克隆）。
 
@@ -22,7 +22,7 @@ flowchart LR
     E --> G["输出 wav<br/>24 kHz 音频"]
 ```
 
-## 15.1 先确认你要跑的是什么
+## 16.1 先确认你要跑的是什么
 
 这一章跑的是 voice cloning（声音克隆）模式：
 
@@ -41,7 +41,7 @@ text + ref_audio + 可选 ref_text -> generated audio
 
 官方示例说明 `model.generate(...)` 返回的是 `np.ndarray` 列表，音频采样率是 24 kHz。
 
-## 15.2 创建干净环境
+## 16.2 创建干净环境
 
 建议使用独立虚拟环境，避免污染系统 Python。
 
@@ -75,7 +75,7 @@ pip install omnivoice
 pip install git+https://github.com/k2-fsa/OmniVoice.git
 ```
 
-## 15.3 网络和模型下载
+## 16.3 网络和模型下载
 
 首次运行会下载预训练模型。官方 README 提到，如果连接 Hugging Face 下载模型有问题，可以设置：
 
@@ -93,7 +93,7 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 注意：镜像可用性会随时间变化。遇到下载失败时，先确认网络、代理、镜像站和 Hugging Face 模型页面是否可访问。
 
-## 15.4 准备参考音频
+## 16.4 准备参考音频
 
 官方 tips 建议使用 3 到 10 秒参考音频。过长音频会拖慢推理，也可能降低克隆质量。
 
@@ -110,7 +110,7 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 如果做 cross-lingual voice cloning（跨语言声音克隆），要注意官方说明：生成语音可能带有参考音频语言的口音。
 
-## 15.5 设备选择
+## 16.5 设备选择
 
 官方示例使用：
 
@@ -140,7 +140,7 @@ def pick_device() -> str:
 
 CPU 也能作为 fallback（回退设备），但速度会明显慢。
 
-## 15.6 最小可运行脚本
+## 16.6 最小可运行脚本
 
 把参考音频放到当前目录，命名为 `reference_voice.wav`，然后运行下面脚本。
 
@@ -202,7 +202,7 @@ if __name__ == "__main__":
 加载模型 -> 输入 text 和 ref_audio -> 返回 np.ndarray 音频 -> 写入 wav
 ```
 
-## 15.7 常见错误和排查
+## 16.7 常见错误和排查
 
 | 现象 | 优先排查 |
 | --- | --- |
@@ -214,7 +214,7 @@ if __name__ == "__main__":
 | 数字读错 | 先做文本规范化，把数字展开成文字 |
 | 输出音频异常 | 检查 `sf.write` 采样率是否为 24000 |
 
-## 15.8 CLI 方式
+## 16.8 CLI 方式
 
 官方也提供 CLI（命令行）入口。单条 voice cloning 可以使用：
 
@@ -230,7 +230,7 @@ omnivoice-infer \
 
 CLI 适合快速验证，Python API 适合集成到你自己的工程流程。
 
-## 15.9 本章小结
+## 16.9 本章小结
 
 本章最重要的直觉：
 

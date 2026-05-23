@@ -13,8 +13,8 @@
     </style>
   </defs>
   <rect width="1600" height="900" fill="#fff"/>
-  <text x="60" y="74" class="title">第十三章：推理、控制、评测与部署</text>
-  <text x="60" y="114" class="sub">从“模型能跑”到“服务稳定”：链路、控制、指标和监控都要一起看</text>
+  <text x="60" y="74" class="title">第十三章：模型推理</text>
+  <text x="60" y="114" class="sub">从输入条件到 audio token / mel / latent，再由 decoder 或 vocoder 还原成声音</text>
 
   <g transform="translate(80,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">输入文本</text><text x="28" y="88" class="t">长文本、数字</text><text x="28" y="118" class="t">中英混读</text></g>
   <g transform="translate(330,220)"><rect width="200" height="145" class="box"/><text x="28" y="48" class="h">文本前端</text><text x="28" y="88" class="t">规范化</text><text x="28" y="118" class="t">G2P / 韵律</text></g>
@@ -30,12 +30,12 @@
   <text x="270" y="650" class="t">speed / pitch / energy / pause</text>
 
   <rect x="620" y="510" width="360" height="180" class="mon"/>
-  <text x="660" y="560" class="h">评测指标</text>
-  <text x="660" y="610" class="t">MOS / WER / speaker similarity</text>
-  <text x="660" y="650" class="t">RTF / P95 / bad case</text>
+  <text x="660" y="560" class="h">模型计算</text>
+  <text x="660" y="610" class="t">权重参与推理</text>
+  <text x="660" y="650" class="t">预测 token / mel / latent</text>
 
   <rect x="1010" y="510" width="360" height="180" class="box"/>
-  <text x="1050" y="560" class="h">部署优化</text>
-  <text x="1050" y="610" class="t">缓存条件、减少采样步数</text>
-  <text x="1050" y="650" class="t">ONNX / TensorRT / batch</text>
+  <text x="1050" y="560" class="h">生成策略</text>
+  <text x="1050" y="610" class="t">temperature / guidance</text>
+  <text x="1050" y="650" class="t">长文本切分 / 流式生成</text>
 </svg>

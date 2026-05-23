@@ -24,11 +24,11 @@
 第一编：声音与语音基础
 声音 → 人声产生 → 文本前端 → 音素 → 声学表征 → 韵律/音色/情绪分解
 
-第二编：TTS 模型技术
-模型演化 → 声学模型 → vocoder → diffusion / flow matching
+第二编：TTS 模型与工程原理
+模型演化 → 声学模型 → vocoder → diffusion / flow matching → 模型方案 → 训练 → 推理 → 评测部署
 
-第三编：工程实践
-数据 → 特征 → 对齐 → 损失函数 → 训练 → 推理 → 评测 → 部署 → OmniVoice 案例
+第三编：OmniVoice 工程实践
+OmniVoice 生态 → 本地实战 → 可控生成
 ```
 
 核心知识地图：
@@ -71,21 +71,22 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 5. [语音信号的时频表示：mel、F0、energy 与 codec token](chapter05_语音信号的时频表示.md)
 6. [语音信息分解：音色、内容、说话方式与发音结构](chapter06_语音信息分解.md)
 
-### 第二编：TTS 模型技术
+### 第二编：TTS 模型与工程原理
 
 7. [TTS 模型的历史演化](chapter07_TTS模型的历史演化.md)
 8. [声学模型 Acoustic Model](chapter08_声学模型.md)
 9. [Vocoder 与波形生成](chapter09_Vocoder与波形生成.md)
 10. [扩散模型与新一代 TTS](chapter10_扩散模型与新一代TTS.md)
-
-### 第三编：工程实践
-
 11. [工程视角下的模型方案：训练模型到底交付了什么](chapter11_工程视角下的模型方案.md)
-12. [训练工程：数据、特征、对齐与损失函数](chapter12_训练工程.md)
-13. [推理、控制、评测与部署](chapter13_推理控制评测与部署.md)
-14. [OmniVoice 生态：开源模型、商业 SaaS 与同名系统](chapter14_OmniVoice生态.md)
-15. [OmniVoice 本地实战：零样本声音克隆](chapter15_OmniVoice本地实战.md)
-16. [OmniVoice 可控生成：音色克隆与口音修改](chapter16_OmniVoice可控生成.md)
+12. [模型训练：模型如何从数据里学会说话](chapter12_模型训练.md)
+13. [模型推理：模型如何从输入生成声音](chapter13_模型推理.md)
+14. [评测与部署：生成结果如何变成稳定服务](chapter14_评测与部署.md)
+
+### 第三编：OmniVoice 工程实践
+
+15. [OmniVoice 生态：开源模型、商业 SaaS 与同名系统](chapter15_OmniVoice生态.md)
+16. [OmniVoice 本地实战：零样本声音克隆](chapter16_OmniVoice本地实战.md)
+17. [OmniVoice 可控生成：音色克隆与口音修改](chapter17_OmniVoice可控生成.md)
 
 ## 文件目录
 
@@ -97,14 +98,15 @@ books/
 ├── images/
 │   ├── chapter03_人声产生机制_source_filter_model.jpg
 │   ├── chapter04_文本前端与音素_文本前端流程图.png
+│   ├── chapter04_文本前端与音素_音素解释图.png
 │   ├── chapter05_语音信号的时频表示_声学表示流程图.png
 │   ├── chapter06_语音信息分解_语音信息分解总览图.png
 │   ├── chapter07_TTS模型的历史演化_路线图.svg
 │   ├── chapter08_声学模型_结构图.svg
 │   ├── chapter09_Vocoder与波形生成_还原链路图.svg
 │   ├── chapter10_扩散模型与新一代TTS_生成空间图.svg
-│   ├── chapter12_训练工程_训练流水线图.svg
-│   └── chapter13_推理控制评测与部署_服务链路图.svg
+│   ├── chapter12_模型训练_训练流水线图.svg
+│   └── chapter13_模型推理_推理链路图.svg
 ├── chapter00_书籍介绍中.md
 ├── chapter01_TTS到底在解决什么问题.md
 ├── chapter02_声音是什么.md
@@ -117,11 +119,12 @@ books/
 ├── chapter09_Vocoder与波形生成.md
 ├── chapter10_扩散模型与新一代TTS.md
 ├── chapter11_工程视角下的模型方案.md
-├── chapter12_训练工程.md
-├── chapter13_推理控制评测与部署.md
-├── chapter14_OmniVoice生态.md
-├── chapter15_OmniVoice本地实战.md
-└── chapter16_OmniVoice可控生成.md
+├── chapter12_模型训练.md
+├── chapter13_模型推理.md
+├── chapter14_评测与部署.md
+├── chapter15_OmniVoice生态.md
+├── chapter16_OmniVoice本地实战.md
+└── chapter17_OmniVoice可控生成.md
 ```
 
 ## 章节更新参考
@@ -142,11 +145,12 @@ books/
 | 第 9 章：Vocoder 与波形生成 | 声学表示到 waveform | 补充 HiFi-GAN、DiffWave、BigVGAN、GAN loss、diffusion vocoder |
 | 第 10 章：扩散模型与新一代 TTS | diffusion / flow matching 生成建模 | 补充 DDPM、score、condition、cross-attention、Grad-TTS、latent diffusion、F5-TTS |
 | 第 11 章：工程视角下的模型方案 | 解释训练模型、checkpoint、推理代码和模型方案的区别 | 补充常见项目文件映射、OmniVoice 代码对应关系、工程接入检查清单 |
-| 第 12 章：训练工程 | 数据到训练 batch | 补充数据清洗、特征提取、forced alignment、MAS、loss、mask、bucket、EMA |
-| 第 13 章：推理、控制、评测与部署 | 从模型到服务 | 补充采样步数、guidance、RTF、MOS、speaker similarity、部署优化和监控 |
-| 第 14 章：OmniVoice 生态 | OmniVoice 名称和生态边界 | 保留生态澄清，避免和前面基础章节混写 |
-| 第 15 章：OmniVoice 本地实战 | zero-shot voice cloning 工程案例 | 补充环境、依赖、设备 fallback、类型兼容、完整脚本 |
-| 第 16 章：OmniVoice 可控生成 | 音色克隆与口音控制案例 | 补充 `ref_audio`、`instruct`、口音白名单、可控生成和特征分解的对应关系 |
+| 第 12 章：模型训练 | 解释模型如何从数据里学会说话 | 补充 token、embedding、loss、反向传播、权重更新、checkpoint、数据清洗和对齐 |
+| 第 13 章：模型推理 | 解释模型如何从输入生成声音 | 补充文本、参考音频、audio tag、audio token / mel / latent、decoder / vocoder、长文本和流式生成 |
+| 第 14 章：评测与部署 | 从生成结果到稳定服务 | 补充 MOS、WER、speaker similarity、RTF、延迟、部署优化、线上日志和 bad case 闭环 |
+| 第 15 章：OmniVoice 生态 | OmniVoice 名称和生态边界 | 保留生态澄清，避免和前面通用原理章节混写 |
+| 第 16 章：OmniVoice 本地实战 | zero-shot voice cloning 工程案例 | 补充环境、依赖、设备 fallback、类型兼容、完整脚本 |
+| 第 17 章：OmniVoice 可控生成 | 音色克隆与口音控制案例 | 补充 `ref_audio`、`instruct`、口音白名单、可控生成和特征分解的对应关系 |
 
 ## 阅读路径
 
@@ -158,10 +162,10 @@ books/
 第 6 章：音色、内容、说话方式、发音结构分解
 第 8-10 章：声学模型、vocoder、diffusion / flow matching
 第 11 章：工程视角下理解模型交付物
-第 12-13 章：训练、推理、评测、部署
+第 12-14 章：训练、推理、评测、部署
 ```
 
-如果目标是先跑通 demo，可以先读第 13-15 章，但建议回头补第 1-6 章，否则很容易只会改参数，不理解参数背后的声学含义。
+如果目标是先跑通 demo，可以先读第 15-17 章，但建议回头补第 1-6 章和第 12-13 章，否则很容易只会改参数，不理解参数背后的声学含义。
 
 ## 参考阅读顺序
 

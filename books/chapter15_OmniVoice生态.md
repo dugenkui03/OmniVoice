@@ -1,4 +1,4 @@
-# 第十四章：OmniVoice 生态 —— 名字辨析、模型能力与工程边界
+# 第十五章：OmniVoice 生态 —— 名字辨析、模型能力与工程边界
 
 进入实战前，需要先把“OmniVoice”这个名字说清楚。搜索这个词时，你可能会看到开源 TTS 模型、AI 配音网站和虚拟电话系统。它们名字相似，但技术对象完全不同。
 
@@ -16,7 +16,7 @@ flowchart LR
     B --> E["本书重点<br/>模型原理 + 本地工程实践"]
 ```
 
-## 14.1 三个容易混淆的对象
+## 15.1 三个容易混淆的对象
 
 | 名称 | 类型 | 和本书关系 |
 | --- | --- | --- |
@@ -31,7 +31,7 @@ flowchart LR
 如果页面讲电话号码、IVR、voicemail、SMS/MMS，多半是电话系统。
 ```
 
-## 14.2 k2-fsa/OmniVoice：本书关注的开源 TTS 模型
+## 15.2 k2-fsa/OmniVoice：本书关注的开源 TTS 模型
 
 k2-fsa/OmniVoice 的官方 Hugging Face 页面把它标为 Text-to-Speech（文本转语音）模型，标签包括 zero-shot（零样本）、multilingual（多语言）、voice-cloning（声音克隆）和 voice-design（声音设计）。
 
@@ -59,7 +59,7 @@ flowchart LR
 
 注意：上图是学习用简化图，不等于论文完整结构图。
 
-## 14.3 OmniVoice 和前面章节知识点的对应关系
+## 15.3 OmniVoice 和前面章节知识点的对应关系
 
 | 前面章节概念 | 在 OmniVoice 实战里怎么看 |
 | --- | --- |
@@ -73,7 +73,7 @@ flowchart LR
 
 这也是为什么前面要先学 mel、codec token、speaker embedding、duration、diffusion 和 flow matching：实战参数背后都有对应概念。
 
-## 14.4 omnivoice.app：托管式网页服务
+## 15.4 omnivoice.app：托管式网页服务
 
 `omnivoice.app` 是面向用户的网页产品，页面描述了 voice cloning（声音克隆）、voice design（声音设计）、网页生成、播放和下载等功能。
 
@@ -89,7 +89,7 @@ flowchart LR
 
 学习时建议把它当作“在线体验层”，不要把网页价格或营销文案直接当作模型架构事实。
 
-## 14.5 omnivoice.ai：虚拟电话系统，不是 TTS 模型
+## 15.5 omnivoice.ai：虚拟电话系统，不是 TTS 模型
 
 `omnivoice.ai` 官方页面描述的是 virtual phone service（虚拟电话服务），包括 call routing（呼叫路由）、voicemail（语音信箱）、SMS/MMS、call queues（呼叫队列）等功能。
 
@@ -103,7 +103,7 @@ flowchart LR
 电话号码、IVR、voicemail、business calls
 ```
 
-## 14.6 选型时不要只看宣传指标
+## 15.6 选型时不要只看宣传指标
 
 如果把 OmniVoice 和其他 TTS 系统比较，不建议只看“支持多少语言”或“RTF 多低”。工程选型至少要看：
 
@@ -120,7 +120,7 @@ flowchart LR
 
 本书后续章节更关注工程实操：先跑通，再理解每个参数背后的模型含义。
 
-## 14.7 参考来源
+## 15.7 参考来源
 
 - k2-fsa/OmniVoice Hugging Face 模型卡：<https://huggingface.co/k2-fsa/OmniVoice>
 - k2-fsa/OmniVoice GitHub README：<https://github.com/k2-fsa/OmniVoice>
@@ -128,7 +128,7 @@ flowchart LR
 - omnivoice.app 声音克隆页面：<https://omnivoice.app/voice-cloning>
 - omnivoice.ai 虚拟电话服务页面：<https://www.omnivoice.ai/>
 
-## 14.8 本章小结
+## 15.8 本章小结
 
 本章最重要的直觉：
 
