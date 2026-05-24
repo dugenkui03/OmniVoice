@@ -1,4 +1,4 @@
-# 第五章：语音信号的时频表示 —— mel、F0、energy 与 codec token
+# 第五章：语音信号的时频表示 —— mel、F0、energy、codec token 与 latent
 
 本章是进入 TTS 模型的关键章节。模型通常不会直接从文本生成几十万采样点的 waveform（波形），而是先生成更容易建模的声学表征（acoustic representation，声音的中间表示）。
 
@@ -108,6 +108,62 @@ flowchart LR
     C --> D["mel filterbank<br/>梅尔滤波器组"]
     D --> E["mel-spectrogram<br/>梅尔频谱"]
 ```
+
+![mel-spectrogram（梅尔频谱）科普图](./images/chapter05_语音信号的时频表示_梅尔频谱图科普.png)
+
+### 5.4.1 如何读懂一张 mel-spectrogram
+
+mel-spectrogram 可以理解成声音的“时间 × 感知频率 × 能量强度”地图。它把一段声音拆成三个维度：
+
+| 维度 | 含义 |
+| --- | --- |
+| 横轴 | 时间，从左到右表示声音随时间变化 |
+| 纵轴 | 频率区域，但不是普通 Hz 频率，而是经过人耳感知压缩的 Mel 频率刻度 |
+| 颜色 | 能量 / 响度强弱，颜色越亮通常表示该时间点、该频率区域的声音能量越强 |
+
+所以，mel-spectrogram 上的每一个小格子都可以理解成一个数值：
+
+```text
+在某个时间点，某个 Mel 频率区域里，声音有多强。
+```
+
+纵轴不是 pitch（音高）本身，而是一组 Mel filter bank（梅尔滤波器组）。它可以粗略理解成：把真实频率从低到高分成很多个“频率桶”。
+
+```text
+高频  ↑   s、sh、f 这类摩擦音、气声、细节
+      |
+中频  |   元音的一些共振结构，人声主体
+      |
+低频  |   基频、低沉感、男声厚度
+      |
+      +----------------→ 时间
+```
+
+Mel 刻度不是线性的 Hz 频率。人耳对低频变化更敏感，对高频变化相对没那么敏感，所以 Mel filter bank 会让低频分得更细，高频分得更粗。
+
+颜色表示能量强度。具体颜色取决于绘图工具的配色方案，不一定所有图都是红色更强、蓝色更弱；但本质都是：颜色越明显，表示这个时间点和频率区域的能量越强。
+
+普通 waveform（波形图）只直接展示声音随时间的振动强弱：
+
+```text
+振幅
+ ↑       /\      /\
+ |  /\  /  \ /\ /  \
+ |_/  \/    V  V    \__
+ +----------------------→ 时间
+```
+
+mel-spectrogram 则展示不同时间点上，不同频率区域分别有多强：
+
+```text
+频率
+ ↑  高频  █░░░██░░
+ |  中频  ░██████░
+ |  低频  ███░░███
+ +----------------→ 时间
+```
+
+因此，mel-spectrogram 比 waveform 更适合 TTS / 语音模型：它不是只看一条振动曲线，而是把声音拆成更结构化的时间-频率热力图。
 
 为什么 TTS 常用 mel-spectrogram（梅尔频谱）？
 
@@ -860,7 +916,76 @@ codec 产出的中间表示不一定非得是离散的。实际上有两条路�
 混合路线：有些系统用离散 semantic token + 连续 acoustic latent。
 ```
 
-### 5.8.8 codec token 与 mel-spectrogram 的对比
+### 5.8.8 latent（潜变量）：更偏模型内部的中间产物
+
+latent（潜变量、潜在表示）可以理解成模型为了处理数据而产生或使用的**中间产物**。它不是模型权重本身，而是某段输入数据经过 encoder、tokenizer 或模型内部网络之后得到的向量、矩阵或张量。
+
+```mermaid
+flowchart LR
+    A["输入数据<br/>文本 / 音频 / token"] --> B["模型权重<br/>训练得到的参数"]
+    B --> C["latent<br/>随输入变化的中间表示"]
+    C --> D["输出目标<br/>mel / codec token / waveform"]
+```
+
+可以把关系先记成：
+
+| 概念 | 它是什么 | 是否随输入变化 |
+| --- | --- | --- |
+| 模型权重 | 训练得到的参数矩阵或张量 | 推理时通常固定 |
+| embedding | token、音素、说话人等对象的向量表示 | 随输入对象变化 |
+| latent | 模型内部或 encoder 产生的隐藏表示 | 随每次输入变化 |
+| mel / codec token | 常见的语音中间表示 | 随目标语音变化 |
+
+所以 latent 和 mel、codec token 的关系是：
+
+```text
+它们都可以是声音信息到 waveform 之前的中间表示。
+mel 更像人工设计过的声学图。
+codec token 更像离散化后的语音编号序列。
+latent 更像模型学出来的连续内部表示或压缩表示。
+```
+
+在语音模型里，一个常见链路是：
+
+```mermaid
+flowchart LR
+    A["waveform<br/>原始声音"] --> B["encoder / AudioVAE"]
+    B --> C["continuous latent<br/>连续语音潜变量"]
+    C --> D["flow / diffusion / decoder"]
+    D --> E["waveform<br/>重建或生成声音"]
+```
+
+一个系统也可能同时出现 mel、token 和 latent。原因不是“重复造轮子”，而是它们各自擅长不同事情：
+
+| 表示 | 更擅长什么 | 常见位置 |
+| --- | --- | --- |
+| mel-spectrogram | 声学监督、vocoder 输入、音质相关损失 | 传统 TTS、S2M、mel loss |
+| codec token | 离散建模、接入 LLM / Speech LM、语音续写 | codec TTS、prompt-based TTS |
+| continuous latent | 连续生成、flow / diffusion、减少离散量化损失 | AudioVAE、latent diffusion、flow matching |
+
+混合系统的直觉是：
+
+```mermaid
+flowchart LR
+    A["文本 / 参考音频"] --> B["semantic token<br/>抓内容和高层结构"]
+    B --> C["latent / flow<br/>补连续声学细节"]
+    C --> D["mel 或 decoder 输入<br/>服务还原模块"]
+    D --> E["vocoder / decoder"]
+    E --> F["waveform"]
+```
+
+对训练和推理来说，latent 这个概念的价值主要体现在四个方面：
+
+| 工作场景 | 了解 latent 的用处 |
+| --- | --- |
+| 读论文和 README | 判断模型是在生成 mel、codec token、continuous latent，还是 waveform |
+| 训练模型 | 明白训练目标是预测 token、回归 mel、去噪 latent，还是做 flow matching |
+| 准备数据 | 知道是否需要预先用 encoder / tokenizer 把音频转成 latent 或 token |
+| 调试推理效果 | 声音差可能来自主模型，也可能来自 latent encoder / decoder 的重建质量 |
+
+因此，latent 不是一个必须手工操作的单独文件，而是理解现代 TTS 链路时经常出现的“中间货币”。第七章讨论的 continuous latent / flow 路线，就是在这类连续中间空间里做语音生成。
+
+### 5.8.9 codec token 与 mel-spectrogram 的对比
 
 | 维度 | mel-spectrogram（梅尔频谱） | codec token（语音编码 token） |
 | --- | --- | --- |
@@ -874,7 +999,7 @@ codec 产出的中间表示不一定非得是离散的。实际上有两条路�
 
 两种表示不是互斥的。工程上经常看到混合使用的系统：比如用 codec encoder 做压缩，用 mel-spectrogram 做辅助损失或条件。
 
-### 5.8.9 codec 质量为什么重要
+### 5.8.10 codec 质量为什么重要
 
 codec 是整条链路的基座。如果 codec 本身的重建质量不好，生成模型再强也会受限：
 
@@ -1004,6 +1129,7 @@ F0 / pitch（基频 / 音高）描述高低走势。
 energy（能量）描述声音强弱。
 duration（时长）连接文本 token 和语音帧。
 codec token（语音编码 token）通过 VQ / RVQ 把波形压缩成离散 token，让语音可以像文本一样被语言模型建模。
+continuous latent（连续潜变量）是模型在连续空间中使用的语音中间产物，常用于 flow matching、diffusion 或 AudioVAE 类链路。
 RVQ（残差向量量化）分层逐步补充细节：第 1 层捕捉粗粒度内容，后续层补充音色和高频细节。
 semantic token 和 acoustic token 分别偏向"说了什么"和"听起来像谁"。
 codec 的重建质量是整条语音生成链路的基座。

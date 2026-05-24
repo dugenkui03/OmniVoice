@@ -6,7 +6,7 @@
 
 本书重点回答两类问题：
 
-1. TTS 相关的基本原理：表征、音素、因素、音色、韵律、情绪、F0、energy、duration、mel、codec token 等术语到底是什么意思，它们在语音信号和模型特征中通常如何分工。
+1. TTS 相关的基本原理：表征、音素、音色、韵律、情绪、F0、energy、duration、mel、codec token、latent 等术语到底是什么意思，它们在语音信号和模型特征中通常如何分工。
 2. TTS 相关的工程技术：声学模型、vocoder、扩散模型、flow matching、模型训练、推理采样、控制、评测和部署如何串成完整工程链路。
 
 这里把“因素”理解为两类：
@@ -20,15 +20,12 @@
 
 本书分成三编：
 
-```text
-第一编：声音与语音基础
-声音 → 人声产生 → 文本前端 → 音素 → 声学表征 → 韵律/音色/情绪分解
-
-第二编：TTS 模型与工程原理
-模型演化 → 声学模型 → vocoder → diffusion / flow matching → 模型方案 → 训练 → 推理 → 评测部署
-
-第三编：OmniVoice 工程实践
-OmniVoice 生态 → 本地实战 → 可控生成
+```mermaid
+flowchart LR
+    A["第一编：声音与语音基础<br/>声音、人声、文本前端、音素、声学表征、信息分解"]
+    B["第二编：TTS 模型与工程原理<br/>主流方案、声学模型、vocoder、扩散/flow、训练、推理、评测部署"]
+    C["第三编：OmniVoice 工程实践<br/>生态辨析、本地实战、可控生成"]
+    A --> B --> C
 ```
 
 核心知识地图：
@@ -68,12 +65,12 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 2. [声音是什么：波形、采样率与频率](chapter02_声音是什么.md)
 3. [人声的产生机制：声带、基频与共振峰](chapter03_人声的产生机制.md)
 4. [文本前端与音素：文字不是发音](chapter04_文本前端与音素.md)
-5. [语音信号的时频表示：mel、F0、energy 与 codec token](chapter05_语音信号的时频表示.md)
+5. [语音信号的时频表示：mel、F0、energy、codec token 与 latent](chapter05_语音信号的时频表示.md)
 6. [语音信息分解：音色、内容、说话方式与发音结构](chapter06_语音信息分解.md)
 
 ### 第二编：TTS 模型与工程原理
 
-7. [TTS 模型的历史演化](chapter07_TTS模型的历史演化.md)
+7. [当前主流 TTS 模型方案](chapter07_当前主流TTS模型方案.md)
 8. [声学模型 Acoustic Model](chapter08_声学模型.md)
 9. [Vocoder 与波形生成](chapter09_Vocoder与波形生成.md)
 10. [扩散模型与新一代 TTS](chapter10_扩散模型与新一代TTS.md)
@@ -88,69 +85,27 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 16. [OmniVoice 本地实战：零样本声音克隆](chapter16_OmniVoice本地实战.md)
 17. [OmniVoice 可控生成：音色克隆与口音修改](chapter17_OmniVoice可控生成.md)
 
-## 文件目录
+## 章节导览
 
-本节记录 `books/` 下的文件与章节映射。后续新增、重命名或拆分章节时，需要同步更新这里和上面的总目录。
-
-```text
-books/
-├── TODO_基本原理补充.md
-├── images/
-│   ├── chapter03_人声产生机制_source_filter_model.jpg
-│   ├── chapter04_文本前端与音素_文本前端流程图.png
-│   ├── chapter04_文本前端与音素_音素解释图.png
-│   ├── chapter05_语音信号的时频表示_声学表示流程图.png
-│   ├── chapter06_语音信息分解_语音信息分解总览图.png
-│   ├── chapter07_TTS模型的历史演化_路线图.svg
-│   ├── chapter08_声学模型_结构图.svg
-│   ├── chapter09_Vocoder与波形生成_还原链路图.svg
-│   ├── chapter10_扩散模型与新一代TTS_生成空间图.svg
-│   ├── chapter12_模型训练_训练流水线图.svg
-│   └── chapter13_模型推理_推理链路图.svg
-├── chapter00_书籍介绍中.md
-├── chapter01_TTS到底在解决什么问题.md
-├── chapter02_声音是什么.md
-├── chapter03_人声的产生机制.md
-├── chapter04_文本前端与音素.md
-├── chapter05_语音信号的时频表示.md
-├── chapter06_语音信息分解.md
-├── chapter07_TTS模型的历史演化.md
-├── chapter08_声学模型.md
-├── chapter09_Vocoder与波形生成.md
-├── chapter10_扩散模型与新一代TTS.md
-├── chapter11_工程视角下的模型方案.md
-├── chapter12_模型训练.md
-├── chapter13_模型推理.md
-├── chapter14_评测与部署.md
-├── chapter15_OmniVoice生态.md
-├── chapter16_OmniVoice本地实战.md
-└── chapter17_OmniVoice可控生成.md
-```
-
-## 章节更新参考
-
-后续更新每一章时，优先参考本节，保证章节之间的职责边界清晰，避免把扩散模型、vocoder、声学基础和 OmniVoice 案例混在同一章里。
-
-| 章节 | 当前定位 | 后续更新重点 |
-| --- | --- | --- |
-| 第 0 章：书籍介绍 | 全书目标、目录、阅读路径、章节职责说明 | 只放正文之外的内容，包括写作目标、学习路线、目录变更说明 |
-| 第 1 章：TTS 到底在解决什么问题 | 建立 TTS 全局任务视角 | 补充 TTS 任务定义、输入输出、评价目标、系统总流程图 |
-| 第 2 章：声音是什么 | 声音物理基础 | 补充 waveform、sample rate、amplitude、frequency、phase、harmonic、noise |
-| 第 3 章：人声的产生机制 | 人声声学基础 | 补充 source-filter model、F0、formant、vocal tract、清浊音、元音辅音 |
-| 第 4 章：文本前端与音素 | 文本到发音结构 | 补充 text normalization、G2P、拼音、音素、声调、多音字、韵律边界 |
-| 第 5 章：语音信号的时频表示 | 模型常用声学表示 | 补充 STFT、spectrogram、mel、F0、energy、duration、codec token 的区别 |
-| 第 6 章：语音信息分解 | 音色、内容、说话方式、发音结构的特征分工 | 补充 speaker embedding、style embedding、prompt speech、发音结构、特征解耦和混合表示 |
-| 第 7 章：TTS 模型的历史演化 | 模型路线图 | 补充 Tacotron、FastSpeech、VITS、Diffusion、Flow Matching 的演化逻辑 |
-| 第 8 章：声学模型 | 文本/音素到声学表示 | 补充 encoder、decoder、attention、duration、variance adaptor、latent variable |
-| 第 9 章：Vocoder 与波形生成 | 声学表示到 waveform | 补充 HiFi-GAN、DiffWave、BigVGAN、GAN loss、diffusion vocoder |
-| 第 10 章：扩散模型与新一代 TTS | diffusion / flow matching 生成建模 | 补充 DDPM、score、condition、cross-attention、Grad-TTS、latent diffusion、F5-TTS |
-| 第 11 章：工程视角下的模型方案 | 解释训练模型、checkpoint、推理代码和模型方案的区别 | 补充常见项目文件映射、OmniVoice 代码对应关系、工程接入检查清单 |
-| 第 12 章：模型训练 | 解释模型如何从数据里学会说话 | 补充 token、embedding、loss、反向传播、权重更新、checkpoint、数据清洗和对齐 |
-| 第 13 章：模型推理 | 解释模型如何从输入生成声音 | 补充文本、参考音频、audio tag、audio token / mel / latent、decoder / vocoder、长文本和流式生成 |
-| 第 14 章：评测与部署 | 从生成结果到稳定服务 | 补充 MOS、WER、speaker similarity、RTF、延迟、部署优化、线上日志和 bad case 闭环 |
-| 第 15 章：OmniVoice 生态 | OmniVoice 名称和生态边界 | 保留生态澄清，避免和前面通用原理章节混写 |
-| 第 16 章：OmniVoice 本地实战 | zero-shot voice cloning 工程案例 | 补充环境、依赖、设备 fallback、类型兼容、完整脚本 |
-| 第 17 章：OmniVoice 可控生成 | 音色克隆与口音控制案例 | 补充 `ref_audio`、`instruct`、口音白名单、可控生成和特征分解的对应关系 |
+| 章节 | 读者会学到什么 | 核心概念 | 和前后章节的关系 |
+| --- | --- | --- | --- |
+| 第 1 章：TTS 到底在解决什么问题 | 建立 TTS 的输入、输出和系统目标 | text-to-speech、输入条件、输出音频、评价目标 | 为全书建立任务边界 |
+| 第 2 章：声音是什么 | 理解电脑里的声音为什么是波形数据 | waveform、sample rate、amplitude、frequency、noise | 给第 5 章的声学表示打物理基础 |
+| 第 3 章：人声的产生机制 | 理解人声为什么有音高、音色和共振 | source-filter model、F0、formant、vocal tract | 连接声音物理和人声特征 |
+| 第 4 章：文本前端与音素 | 理解文字为什么不能直接等于发音 | text normalization、G2P、phoneme、tone、stress | 把文本变成模型可用的发音结构 |
+| 第 5 章：语音信号的时频表示 | 理解模型常见的声音中间表示 | frame、spectrogram、mel、F0、energy、duration、codec token、latent | 为声学模型、vocoder 和主流方案做概念准备 |
+| 第 6 章：语音信息分解 | 理解一句语音里有哪些可被模型拆开的因素 | speaker、timbre、content、prosody、emotion、style、pronunciation | 解释声音克隆、情绪控制和可控生成的基础 |
+| 第 7 章：当前主流 TTS 模型方案 | 建立当前 TTS 技术路线地图 | mel/vocoder、codec token、Speech LM、continuous latent、flow matching | 从基础概念过渡到模型方案 |
+| 第 8 章：声学模型 | 理解模型如何把条件变成声学表示 | encoder、backbone、alignment、duration、decoder、acoustic representation | 展开 TTS 方案中的核心生成模块 |
+| 第 9 章：Vocoder 与波形生成 | 理解声学表示如何还原成最终声音 | vocoder、codec decoder、AudioVAE decoder、waveform | 衔接声学模型输出和可播放音频 |
+| 第 10 章：扩散模型与新一代 TTS | 理解 diffusion / flow matching 在 TTS 中替换或增强了什么 | diffusion、score、flow matching、latent diffusion、condition | 解释当前很多新模型的生成范式 |
+| 第 11 章：工程视角下的模型方案 | 理解“模型”在工程项目里到底由什么组成 | architecture、checkpoint、tokenizer、config、inference code | 从模型原理过渡到训练和推理工程 |
+| 第 12 章：模型训练 | 理解模型如何从数据中学到规律 | dataset、token、embedding、loss、backpropagation、checkpoint | 解释权重从哪里来 |
+| 第 13 章：模型推理 | 理解模型如何从用户输入生成声音 | tokenizer、reference audio、audio tag、sampling、decoder、vocoder | 解释实际生成链路 |
+| 第 14 章：评测与部署 | 理解生成结果如何变成稳定服务 | MOS、WER、speaker similarity、RTF、latency、bad case | 把模型能力落到工程质量 |
+| 第 15 章：OmniVoice 生态 | 分清本书关注的 OmniVoice 和其他同名产品 | open-source model、SaaS、ecosystem boundary | 进入项目实践前先明确对象 |
+| 第 16 章：OmniVoice 本地实战 | 跑通零样本声音克隆的本地链路 | environment、model download、ref_audio、device fallback、CLI | 把前面概念映射到实际代码 |
+| 第 17 章：OmniVoice 可控生成 | 理解如何控制音色、口音、速度和风格 | voice cloning、voice design、instruct、generation parameters | 回到第 6 章的信息分解，并落到实验方法 |
 
 ## 阅读路径
 
@@ -167,19 +122,4 @@ books/
 
 如果目标是先跑通 demo，可以先读第 15-17 章，但建议回头补第 1-6 章和第 12-13 章，否则很容易只会改参数，不理解参数背后的声学含义。
 
-## 参考阅读顺序
-
-后续扩写正文时，建议围绕以下论文和系统逐步展开：
-
-```text
-Tacotron 2
-FastSpeech 2
-HiFi-GAN
-DiffWave
-Grad-TTS
-VITS
-DiffSinger / ProDiff / FastDiff
-NaturalSpeech 系列
-codec-based TTS
-E2-TTS / F5-TTS / flow matching TTS
-```
+如果目标是接手优化这本书，先读本章建立整体视角，再读 [AGENT_HANDOFF.md](AGENT_HANDOFF.md) 了解章节职责、写作规范和后续优化重点。

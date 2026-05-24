@@ -630,4 +630,4 @@ flowchart LR
 mel / latent / codec token / waveform 本身都不是干净解耦的表示。
 ```
 
-接下来第七章进入 TTS 模型演化，第八章讲 acoustic model（声学模型），第九章讲 vocoder（声码器），第十章再专门展开 diffusion（扩散模型）和 flow matching（流匹配）如何在 mel、waveform、latent 或 codec token 空间中做生成。
+接下来第七章进入当前主流 TTS 模型方案，第八章讲 acoustic model（声学模型），第九章讲 vocoder（声码器），第十章再专门展开 diffusion（扩散模型）和 flow matching（流匹配）如何在 mel、waveform、latent 或 codec token 空间中做生成。
