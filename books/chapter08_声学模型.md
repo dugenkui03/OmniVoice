@@ -633,4 +633,4 @@ decoder 负责生成 mel、latent 或 codec token。
 当前读主流 TTS，更应关注 duration、MAS / CTC、diffusion / flow、codec token 和 Transformer / LLM 主干。
 ```
 
-下一章进入 vocoder（声码器）：它负责把 mel、latent 或 codec representation（语音编码表示）变成最终 waveform（波形）。
+下一章进入波形还原模块：vocoder、codec decoder、AudioVAE decoder 负责把 mel、latent 或 codec representation（语音编码表示）变成最终 waveform（波形）。

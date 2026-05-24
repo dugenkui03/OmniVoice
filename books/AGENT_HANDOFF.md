@@ -46,7 +46,7 @@ flowchart LR
 | 第 6 章：语音信息分解 | 解释语音中可控因素 | 讲清谁在说、说了什么、说话方式、发音结构 | 不要把音色、情绪、内容写成天然可完全解耦 |
 | 第 7 章：当前主流 TTS 模型方案 | 建立当前方案地图 | 重点讲 mel/vocoder、codec token、Speech LM、continuous latent、flow matching | 不要用历史年表替代当前主流方案 |
 | 第 8 章：声学模型 | 展开核心生成模块 | 讲清前端条件如何进入模型、如何对齐、如何生成声学表示 | 不要把声学模型等同于完整 TTS 系统 |
-| 第 9 章：Vocoder 与波形生成 | 解释声学表示到 waveform | 讲清 vocoder、codec decoder、AudioVAE decoder 的位置 | 不要把波形还原和声学模型混成一章 |
+| 第 9 章：波形还原模块 | 解释声学表示到 waveform | 讲清 vocoder、codec decoder、AudioVAE decoder 的并列位置 | 不要把波形还原和声学模型混成一章，也不要把 codec token 当成处理模块 |
 | 第 10 章：扩散模型与新一代 TTS | 解释 diffusion / flow matching | 讲清生成范式、条件生成、latent diffusion、flow matching | 不要把 diffusion 当成完整 TTS 系统 |
 | 第 11 章：工程视角下的模型方案 | 解释工程项目里的模型组成 | 讲清 architecture、checkpoint、tokenizer、config、推理代码的关系 | 不要只讲抽象概念，不映射到项目文件 |
 | 第 12 章：模型训练 | 解释模型如何学会说话 | 讲清数据、token、embedding、loss、反向传播、权重更新 | 不要只列训练命令 |

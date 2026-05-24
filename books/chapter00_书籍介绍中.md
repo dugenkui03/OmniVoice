@@ -7,7 +7,7 @@
 本书重点回答两类问题：
 
 1. TTS 相关的基本原理：表征、音素、音色、韵律、情绪、F0、energy、duration、mel、codec token、latent 等术语到底是什么意思，它们在语音信号和模型特征中通常如何分工。
-2. TTS 相关的工程技术：声学模型、vocoder、扩散模型、flow matching、模型训练、推理采样、控制、评测和部署如何串成完整工程链路。
+2. TTS 相关的工程技术：声学模型、波形还原、扩散模型、flow matching、模型训练、推理采样、控制、评测和部署如何串成完整工程链路。
 
 这里把“因素”理解为两类：
 
@@ -23,7 +23,7 @@
 ```mermaid
 flowchart LR
     A["第一编：声音与语音基础<br/>声音、人声、文本前端、音素、声学表征、信息分解"]
-    B["第二编：TTS 模型与工程原理<br/>主流方案、声学模型、vocoder、扩散/flow、训练、推理、评测部署"]
+    B["第二编：TTS 模型与工程原理<br/>主流方案、声学模型、波形还原、扩散/flow、训练、推理、评测部署"]
     C["第三编：OmniVoice 工程实践<br/>生态辨析、本地实战、可控生成"]
     A --> B --> C
 ```
@@ -72,7 +72,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 
 7. [当前主流 TTS 模型方案](chapter07_当前主流TTS模型方案.md)
 8. [声学模型 Acoustic Model](chapter08_声学模型.md)
-9. [Vocoder 与波形生成](chapter09_Vocoder与波形生成.md)
+9. [波形还原模块：Vocoder、Codec Decoder 与 AudioVAE Decoder](chapter09_波形还原模块.md)
 10. [扩散模型与新一代 TTS](chapter10_扩散模型与新一代TTS.md)
 11. [工程视角下的模型方案：训练模型到底交付了什么](chapter11_工程视角下的模型方案.md)
 12. [模型训练：模型如何从数据里学会说话](chapter12_模型训练.md)
@@ -93,11 +93,11 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 | 第 2 章：声音是什么 | 理解电脑里的声音为什么是波形数据 | waveform、sample rate、amplitude、frequency、noise | 给第 5 章的声学表示打物理基础 |
 | 第 3 章：人声的产生机制 | 理解人声为什么有音高、音色和共振 | source-filter model、F0、formant、vocal tract | 连接声音物理和人声特征 |
 | 第 4 章：文本前端与音素 | 理解文字为什么不能直接等于发音 | text normalization、G2P、phoneme、tone、stress | 把文本变成模型可用的发音结构 |
-| 第 5 章：语音信号的时频表示 | 理解模型常见的声音中间表示 | frame、spectrogram、mel、F0、energy、duration、codec token、latent | 为声学模型、vocoder 和主流方案做概念准备 |
+| 第 5 章：语音信号的时频表示 | 理解模型常见的声音中间表示 | frame、spectrogram、mel、F0、energy、duration、codec token、latent | 为声学模型、波形还原模块和主流方案做概念准备 |
 | 第 6 章：语音信息分解 | 理解一句语音里有哪些可被模型拆开的因素 | speaker、timbre、content、prosody、emotion、style、pronunciation | 解释声音克隆、情绪控制和可控生成的基础 |
 | 第 7 章：当前主流 TTS 模型方案 | 建立当前 TTS 技术路线地图 | mel/vocoder、codec token、Speech LM、continuous latent、flow matching | 从基础概念过渡到模型方案 |
 | 第 8 章：声学模型 | 理解模型如何把条件变成声学表示 | encoder、backbone、alignment、duration、decoder、acoustic representation | 展开 TTS 方案中的核心生成模块 |
-| 第 9 章：Vocoder 与波形生成 | 理解声学表示如何还原成最终声音 | vocoder、codec decoder、AudioVAE decoder、waveform | 衔接声学模型输出和可播放音频 |
+| 第 9 章：波形还原模块 | 理解声学表示如何还原成最终声音 | vocoder、codec decoder、AudioVAE decoder、waveform | 衔接声学模型输出和可播放音频 |
 | 第 10 章：扩散模型与新一代 TTS | 理解 diffusion / flow matching 在 TTS 中替换或增强了什么 | diffusion、score、flow matching、latent diffusion、condition | 解释当前很多新模型的生成范式 |
 | 第 11 章：工程视角下的模型方案 | 理解“模型”在工程项目里到底由什么组成 | architecture、checkpoint、tokenizer、config、inference code | 从模型原理过渡到训练和推理工程 |
 | 第 12 章：模型训练 | 理解模型如何从数据中学到规律 | dataset、token、embedding、loss、backpropagation、checkpoint | 解释权重从哪里来 |
@@ -115,7 +115,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 第 1 章：TTS 任务
 第 5 章：mel / F0 / energy / duration
 第 6 章：音色、内容、说话方式、发音结构分解
-第 8-10 章：声学模型、vocoder、diffusion / flow matching
+第 8-10 章：声学模型、波形还原、diffusion / flow matching
 第 11 章：工程视角下理解模型交付物
 第 12-14 章：训练、推理、评测、部署
 ```

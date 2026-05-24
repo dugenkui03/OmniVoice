@@ -1,6 +1,6 @@
-# Chapter 09 Reference: Vocoder and Waveform Generation
+# Chapter 09 Reference: Waveform Restoration Modules
 
-本文件记录第九章《Vocoder 与波形生成》用到的主要参考资料。正文面向科普读者，不在章节内堆引用；这里保留资料来源、对应模块和使用目的，方便后续 agent 复核或继续扩展。
+本文件记录第九章《波形还原模块》用到的主要参考资料。正文面向科普读者，不在章节内堆引用；这里保留资料来源、对应模块和使用目的，方便后续 agent 复核或继续扩展。
 
 参考时点：2026-05-24。
 
