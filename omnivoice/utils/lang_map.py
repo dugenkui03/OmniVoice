@@ -21,11 +21,21 @@ Auto-generated from ``docs/lang_id_name_map.tsv``. Provides ``LANG_NAME_TO_ID``
 (for resolving language names to codes) and ``LANG_IDS`` (the set of supported
 ISO 639-3 codes). Used by ``OmniVoice.generate()`` to resolve user-provided
 language names.
+
+中文说明:
+    本文件保存 OmniVoice 当前支持的全部语言, 是模型的"语言白名单"。
+    它由 ``docs/lang_id_name_map.tsv`` 自动生成, 不要手动逐条改, 应改 TSV 后重新生成。
+    核心数据是把"语言名称"映射到 ISO 639-3 语言代码, 例如 "chinese" -> "zh"。
+    推理时 ``OmniVoice.generate()`` 用它把用户填的语言名解析成模型内部用的语言代码;
+    若用户填的语言名不在这里, 就说明该语言不被支持。
 """
 
 # Auto-generated from docs/lang_id_name_map.tsv
 # Maps lowercase language name -> language ID code
+# 自动生成, 键为小写语言名称, 值为该语言的 ID 代码 (ISO 639-3, 部分用 639-1)。
 
+# 语言名 -> 语言代码 的主映射表 (键统一小写, 便于大小写无关匹配)。
+# 示例: "english" -> "en", "japanese" -> "ja", "cantonese" -> "yue"。
 LANG_NAME_TO_ID = {
     "abadi": "kbt",
     "abkhazian": "ab",
@@ -675,10 +685,14 @@ LANG_NAME_TO_ID = {
     "ömie": "aom",
 }
 
+# 所有受支持的语言名称集合 (小写), 用于快速判断"某语言名是否被支持"。
 LANG_NAMES = set(LANG_NAME_TO_ID.keys())
+# 所有受支持的语言代码集合, 用于快速判断"某语言代码是否合法"。
 LANG_IDS = set(LANG_NAME_TO_ID.values())
 
 # Exceptions where .title() doesn't match the canonical casing from the TSV.
+# 特例表: 这些语言名直接用 .title() 转换后大小写不符合 TSV 里的规范写法,
+# 例如带撇号 (fe'fe') 或包含 de/del 等应保持小写的小词, 故在此手动指定显示形式。
 _TITLE_EXCEPTIONS = {
     "fe'fe'": "Fe'fe'",
     "dũya": "Dũya",
@@ -694,5 +708,10 @@ def lang_display_name(name: str) -> str:
 
     Uses .title() for most names, with manual exceptions for cases like
     apostrophes and small words (de, del) that should stay lowercase.
+
+    中文说明:
+        把内部使用的小写语言名转成适合展示给用户的形式 (如界面、日志)。
+        大多数情况用 .title() 把首字母大写; 对 _TITLE_EXCEPTIONS 里的特例用预设写法。
+        示例: "english" -> "English", "fe'fe'" -> "Fe'fe'"。
     """
     return _TITLE_EXCEPTIONS.get(name, name.title())

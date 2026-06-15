@@ -502,16 +502,21 @@ by Xiaomi AI Lab Next-gen Kaldi team.
 
 
 def main(argv=None) -> int:
+    # 定义日志
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s: %(message)s",
     )
+    # 命令行参数解析器构造函数，用于解析命令行参数
     parser = build_parser()
+    # 解析命令行参数
     args = parser.parse_args(argv)
 
+    # 获取最佳可用设备：CUDA > XPU > MPS > CPU.
     device = args.device or get_best_device()
 
     checkpoint = args.model
+    # 如果模型 checkpoint 或 HuggingFace 仓库名不存在，则打印帮助信息并返回 0
     if not checkpoint:
         parser.print_help()
         return 0

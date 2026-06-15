@@ -44,6 +44,7 @@ def str2bool(v):
 
 
 def get_best_device():
+    """自动检测最佳可用设备: CUDA > XPU > MPS > CPU."""
     """Auto-detect the best available device: CUDA > XPU > MPS > CPU."""
     if torch.cuda.is_available():
         return "cuda"
