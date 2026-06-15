@@ -22,7 +22,6 @@
 
     "typeCheckingMode": "basic",
     "useLibraryCodeForTypes": true,
-    "autoSearchPaths": true,
 
     "reportMissingImports": "warning",
     "reportMissingTypeStubs": "none"

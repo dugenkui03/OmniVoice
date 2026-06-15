@@ -131,20 +131,35 @@ def main():
     #   - 给了 instruct   → Voice Design
     #   - 都没给          → Auto Voice
     audios = model.generate(
+        # 要合成的目标文本; 示例: "Hello, welcome to OmniVoice."
         text=args.text,
+        # 文本语言, 有助于发音更稳; 示例: "English" / "en" / "Chinese".
         language=args.language,
+        # 参考音频路径, 用于声音克隆; 示例: "ref.wav".
         ref_audio=args.ref_audio,
+        # 参考音频对应文本; 示例: "This is the reference voice."
         ref_text=args.ref_text,
+        # 音色/风格描述, 用于 voice design; 示例: "male, British accent".
         instruct=args.instruct,
+        # 固定输出时长(秒), 会覆盖自动时长估计; 示例: 5.0.
         duration=args.duration,
+        # 迭代生成步数, 越大通常越慢但更细; 示例: 32.
         num_step=args.num_step,
+        # 条件引导强度, 越大越贴近条件; 示例: 2.0.
         guidance_scale=args.guidance_scale,
+        # 语速倍率, >1 更快, <1 更慢; 示例: 1.2.
         speed=args.speed,
+        # 时间步偏移, 调整生成过程的时间分布; 示例: 0.1.
         t_shift=args.t_shift,
+        # 是否加入 denoise token 降噪; 示例: True.
         denoise=args.denoise,
+        # 是否做静音裁剪、淡入淡出等后处理; 示例: True.
         postprocess_output=args.postprocess_output,
+        # codebook 层解码惩罚系数; 示例: 5.0.
         layer_penalty_factor=args.layer_penalty_factor,
+        # 位置选择温度, 越高随机性越强; 示例: 5.0.
         position_temperature=args.position_temperature,
+        # token 采样温度, 0 表示贪心选择; 示例: 0.0.
         class_temperature=args.class_temperature,
     )
 

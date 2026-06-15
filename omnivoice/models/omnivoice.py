@@ -25,6 +25,17 @@ This is the main entry point for both inference and training:
 - **Training**: ``model.forward()`` computes the training loss; the model is
   built and used by ``omnivoice.training.builder`` and ``omnivoice.training.trainer``.
 
+中文翻译：
+
+定义 ``OmniVoice`` 模型类、生成配置以及推理流水线。
+本文件是推理和训练的主入口：
+
+- **推理**：``OmniVoice.from_pretrained()`` 加载模型，随后调用
+  ``model.generate()`` 支持音色克隆（voice cloning）、音色设计（voice design）
+  以及自动音色（auto voice）。
+- **训练**：``model.forward()`` 计算训练损失；模型由
+  ``omnivoice.training.builder`` 构建，并由 ``omnivoice.training.trainer`` 使用。
+
 """
 
 import difflib
