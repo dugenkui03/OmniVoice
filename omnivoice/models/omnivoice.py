@@ -1026,7 +1026,23 @@ class OmniVoice(PreTrainedModel):
         speed: Union[float, list[Optional[float]], None] = None,
         duration: Union[float, list[Optional[float]], None] = None,
     ) -> GenerationTask:
+        """把五花八门的用户输入整理成统一的 GenerationTask, 供后续解码直接消费.
 
+        这是 generate() 的第 1 步, 相当于"输入清洗 + 估时长"的总装配, 依次做 5 件事:
+          1) 文本归一化成 batch (单条字符串也统一成列表), 定下 batch_size.
+          2) 解析语言 (language) 与风格指令 (instruct) 为模型内部可用形式.
+          3) 处理参考音频 (voice clone): 必要时把 ref_audio encode 成 token、
+             用 ASR 自动转写 ref_text, 拆成三条平行列表.
+          4) 归一化 speed / duration 为"每条样本一个值"的列表.
+          5) 估计每条样本的目标 token 数 target_lens (掩码扩散必须先知道铺多少帧).
+
+        返回:
+            GenerationTask: 一个按 batch 对齐的"任务包", 每个字段都是长度 = batch_size
+            的平行列表, 第 i 项对应第 i 条输入; 其中最关键的是 target_lens (每条要生成
+            多少帧 token, 直接决定输出时长).
+        """
+
+        # ===== ① 文本归一化成 batch: 单条字符串也统一成列表, 并定下 batch_size =====
         if isinstance(text, str):
             text_list = [text]
         else:
@@ -1036,8 +1052,12 @@ class OmniVoice(PreTrainedModel):
             text_list = text
         batch_size = len(text_list)
 
+        # ===== ② 解析语言与风格指令 =====
+        # language: "English"/"en" 等 → 模型内部语言码 (见 lang_map)
         language_list = self._ensure_list(language, batch_size)
         language_list = [_resolve_language(lang) for lang in language_list]
+        # instruct: voice design 的 "male, british accent" 等 → 校验/规范化;
+        # 文本含中文且未指定口音时, 指令会统一成中文形式 (use_zh)
         instruct_list = self._ensure_list(instruct, batch_size)
         for i, s in enumerate(instruct_list):
             if s is None:
@@ -1045,6 +1065,8 @@ class OmniVoice(PreTrainedModel):
             use_zh = bool(text_list[i] and _ZH_RE.search(text_list[i]))
             instruct_list[i] = _resolve_instruct(s, use_zh=use_zh)
 
+        # ===== ③ 处理参考音频 (voice clone) =====
+        # voice_clone_prompt 与 ref_text/ref_audio 二者都给时, 以前者为准
         if voice_clone_prompt is not None and (
             ref_text is not None or ref_audio is not None
         ):
@@ -1053,8 +1075,8 @@ class OmniVoice(PreTrainedModel):
                 "ref_text/ref_audio will be ignored."
             )
         if voice_clone_prompt is None and ref_audio is not None:
-            # If voice_clone_prompt is not provided, create it from
-            # ref_audio (ref_text will be auto-transcribed if not given).
+            # 没有现成的 voice_clone_prompt 时, 从 ref_audio 现场构造:
+            # 内部会把参考音频 encode 成 token; 若未给 ref_text 则用 ASR 自动转写.
             ref_text_list = self._ensure_list(ref_text, batch_size, auto_repeat=False)
             ref_audio_list = self._ensure_list(ref_audio, batch_size, auto_repeat=False)
 
@@ -1068,6 +1090,7 @@ class OmniVoice(PreTrainedModel):
                     )
                 )
 
+        # 把 voice clone 提示拆成三条平行列表; 没有参考音频时全部填 None (auto voice / voice design)
         voice_clone_prompt_list = self._ensure_list(voice_clone_prompt, batch_size)
         if voice_clone_prompt_list[0] is not None:
             ref_text_list = [vc.ref_text for vc in voice_clone_prompt_list]
@@ -1080,7 +1103,7 @@ class OmniVoice(PreTrainedModel):
             ref_audio_tokens_list = [None] * batch_size
             ref_rms_list = [None] * batch_size
 
-        # Normalize speed/duration to per-item lists (may contain None).
+        # ===== ④ 归一化 speed / duration 为"每条样本一个值"的列表 (可能含 None) =====
         if speed is not None:
             if isinstance(speed, (int, float)):
                 user_speed = [float(speed)] * batch_size
@@ -1097,10 +1120,12 @@ class OmniVoice(PreTrainedModel):
         else:
             durations = None
 
+        # ===== ⑤ 估计每条样本的目标 token 数 (掩码扩散必须先知道铺多少帧) =====
+        # 先用 RuleDurationEstimator 按文本估出基础帧数 (见 _estimate_target_tokens).
         num_target_tokens_list = []
         for i in range(batch_size):
-            # duration[i] overrides speed for estimation: use speed=1.0
-            # to get the raw estimate, then override target_lens below.
+            # 指定了 duration[i] 时, 估计阶段先用 speed=1.0 拿到原始估值,
+            # 真正的帧数稍后由 duration 覆盖 (见下方).
             has_dur = durations is not None and durations[i] is not None
             item_speed = 1.0 if has_dur else (user_speed[i] if user_speed else 1.0)
             est = self._estimate_target_tokens(
@@ -1113,8 +1138,8 @@ class OmniVoice(PreTrainedModel):
             )
             num_target_tokens_list.append(est)
 
-        # Per-item duration overrides: set target_lens to exact frame count
-        # and compute speed ratio so chunked generation scales proportionally.
+        # duration 覆盖: 若用户指定了固定时长, 直接把帧数设为 duration × frame_rate,
+        # 并反算一个 speed 比例 (est/target), 供长文本分块时按比例缩放每段长度.
         speed_list: Optional[List[float]] = None
         if durations is not None:
             frame_rate = self.audio_tokenizer.config.frame_rate
@@ -1129,18 +1154,20 @@ class OmniVoice(PreTrainedModel):
                     s = user_speed[i] if user_speed else None
                     speed_list.append(s if s is not None else 1.0)
         elif user_speed is not None:
+            # 没给 duration 但给了 speed: 直接把 speed 作为缩放比例传下去
             speed_list = [s if s is not None else 1.0 for s in user_speed]
 
+        # ===== 返回: 按 batch 对齐的任务包 (每个字段都是长度 = batch_size 的平行列表) =====
         return GenerationTask(
             batch_size=batch_size,
-            texts=text_list,
-            target_lens=num_target_tokens_list,
-            langs=language_list,
-            instructs=instruct_list,
-            ref_texts=ref_text_list,
-            ref_audio_tokens=ref_audio_tokens_list,
-            ref_rms=ref_rms_list,
-            speed=speed_list,
+            texts=text_list,                       # 待合成文本
+            target_lens=num_target_tokens_list,    # 每条要生成多少帧 token (决定输出时长)
+            langs=language_list,                   # 解析后的语言码
+            instructs=instruct_list,               # 规范化后的风格指令
+            ref_texts=ref_text_list,               # 参考文本 (无则 None)
+            ref_audio_tokens=ref_audio_tokens_list,  # 参考音频 token (无则 None)
+            ref_rms=ref_rms_list,                  # 参考音频 RMS, 用于输出音量归一
+            speed=speed_list,                      # 每条的缩放比例 (供分块按比例缩放)
         )
 
     def _estimate_target_tokens(self, text, ref_text, num_ref_audio_tokens, speed=1.0):
@@ -1160,7 +1187,21 @@ class OmniVoice(PreTrainedModel):
     def _ensure_list(
         self, x: Union[Any, List[Any]], batch_size: int, auto_repeat: bool = True
     ) -> List[Any]:
+        """把"单个值或列表"归一化成长度对齐 batch 的列表, 供批量处理统一消费.
+
+        Args:
+            x: 单个值 (如一个字符串) 或列表 (批量).
+            batch_size: 目标批大小, 即待合成文本的条数.
+            auto_repeat: 为 True 且 x 只有 1 个元素时, 复制成 batch_size 份
+                ("一个值应用到所有样本"); 为 False 时保留原样, 由调用方自行处理
+                (如 ref_text/ref_audio, 避免把同一份参考错误复制成多份).
+
+        Returns:
+            长度为 1 或 batch_size 的列表.
+        """
+        # 不是列表的单个值 → 裹成单元素列表
         x_list = x if isinstance(x, list) else [x]
+        # 校验长度: 只允许 1 或 batch_size, 否则说明用户输入对不齐 (如 3 条文本配 2 个语言)
         if len(x_list) not in (
             1,
             batch_size,
@@ -1168,6 +1209,7 @@ class OmniVoice(PreTrainedModel):
             raise ValueError(
                 f"should be either the number of the text or 1, but got {len(x_list)}"
             )
+        # 按需广播: 只有 1 个元素时复制成 batch_size 份, 让该值应用到每条样本
         if auto_repeat and len(x_list) == 1 and batch_size is not None:
             x_list = x_list * batch_size
         return x_list
@@ -1483,15 +1525,22 @@ def _mask_mod_packed(document_ids, b, h, q_idx, kv_idx):
 
 
 def _resolve_language(language: Optional[str]) -> Union[str, None]:
+    # 把用户传入的 language 规范化成模型内部使用的语言代码 (如 "zh")。
+    # 入参可以是: None / "none" (语言无关)、语言代码 (如 "zh")、或语言全名 (如 "Chinese")。
+    # LANG_IDS: 合法语言代码集合; LANG_NAME_TO_ID: 小写语言名 -> 语言代码 的映射。
     from omnivoice.utils.lang_map import LANG_IDS, LANG_NAME_TO_ID
 
+    # 情况一: 未指定语言, 返回 None 走语言无关模式。
     if language is None or language.lower() == "none":
         return None
+    # 情况二: 已经是合法的语言代码 (如 "zh"), 直接返回。
     if language in LANG_IDS:
         return language
+    # 情况三: 传的是语言全名, 转小写后查映射表得到语言代码 (如 "Chinese" -> "zh")。
     key = language.lower()
     if key in LANG_NAME_TO_ID:
         return LANG_NAME_TO_ID[key]
+    # 情况四: 无法识别, 给出警告并退回 None (语言无关模式), 不中断推理。
     logger.warning(
         f"Language '{language}' is not recognized. "
         f"Please use a valid language ID (e.g., 'en', 'zh', 'ja', 'de') "
