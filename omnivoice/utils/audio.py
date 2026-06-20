@@ -52,17 +52,33 @@ def load_waveform(audio_path: str):
     Returns:
         (data, sample_rate) where data is a numpy float32 array of
         shape (C, T).
+
+    中文说明:
+        从文件路径读取音频, 返回 (波形数据, 采样率)。
+        按顺序尝试两个后端:
+          1. soundfile — 覆盖 WAV/FLAC/OGG 等, 无需 ffmpeg。
+          2. librosa — 经 audioread + ffmpeg 覆盖 MP3/M4A 等。
+        返回的 data 是形状 (C, T) 的 numpy float32 数组。
+
+        用到的第三方包:
+          - soundfile (sf): 基于 libsndfile 的音频读写库, 不依赖 ffmpeg,
+            读无损/未压缩格式快且依赖少, 故作首选。
+          - librosa: 音频分析库, 底层经 audioread+ffmpeg 可解码 MP3/M4A 等
+            压缩格式; 功能全但更重, 故仅在 soundfile 失败时兜底。
     """
     try:
+        # 首选 soundfile: always_2d=True 保证即使单声道也返回二维 (T, C)
         data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
-        return data.T, sr  # (T, C) → (C, T)
+        return data.T, sr  # (T, C) → (C, T) 转置成项目约定的"通道在前"
     except Exception:
         # soundfile cannot handle MP3/M4A etc., fall back to librosa.
-        import librosa
+        # soundfile 读不了 MP3/M4A 等压缩格式时, 回落到 librosa
+        import librosa  # 延迟导入: 仅在确实需要时才加载这个较重的库
 
+        # sr=None 表示保留文件原采样率(不重采样); mono=False 表示保留多声道
         data, sr = librosa.load(audio_path, sr=None, mono=False)
         if data.ndim == 1:
-            data = data[np.newaxis, :]
+            data = data[np.newaxis, :]  # 单声道 (T,) → (1, T), 补出通道维
         return data, sr
 
 
@@ -75,11 +91,19 @@ def load_audio(audio_path: str, sampling_rate: int) -> np.ndarray:
 
     Returns:
         Numpy float32 array of shape (1, T).
+
+    中文说明:
+        从文件读取音频并规整: 转单声道 + 重采样到目标采样率。
+        参数: audio_path 音频路径; sampling_rate 目标采样率。
+        返回: 形状 (1, T) 的 numpy float32 数组 (单声道, T 为采样点数)。
     """
+    # 先读出原始波形 (C, T) 与原采样率 sr (内部按 soundfile→librosa 兜底)
     data, sr = load_waveform(audio_path)
 
+    # 多声道(C>1) → 沿通道轴(axis=0)求均值混成单声道; keepdims=True 保持二维 (1, T)
     if data.shape[0] > 1:
         data = np.mean(data, axis=0, keepdims=True)
+    # 原采样率与目标不一致 → 重采样 (torchaudio 只吃 torch 张量, 故 numpy→torch 算完再转回)
     if sr != sampling_rate:
         data = torchaudio.functional.resample(
             torch.from_numpy(data), orig_freq=sr, new_freq=sampling_rate

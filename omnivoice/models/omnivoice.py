@@ -727,24 +727,46 @@ class OmniVoice(PreTrainedModel):
 
         Returns:
             A :class:`VoiceClonePrompt` that can be passed to :meth:`generate`.
+
+        中文说明:
+            从参考音频构造一个可复用的声音克隆提示 (VoiceClonePrompt)。
+            核心是把参考音频清洗后编码成离散 token, 之后多次 generate() 可复用,
+            避免重复编码。
+
+            参数:
+                ref_audio: 文件路径(str) 或 ``(波形, 采样率)`` 元组;
+                    波形为 1 维或 2 维 torch.Tensor (通道 x 采样点)。
+                ref_text: 参考音频的文本。为 ``None`` 时用 ASR 模型自动转写
+                    (需先调用 load_asr_model)。
+                preprocess_prompt: 默认 ``True`` 时对参考音频做去静音/裁剪,
+                    并在参考文本末尾补标点 (若没有)。
+
+            返回:
+                一个可传给 generate() 的 VoiceClonePrompt。
         """
+        # 前置检查: 必须已加载 audio_tokenizer (否则无法把波形编码成 token)
         if self.audio_tokenizer is None:
             raise RuntimeError(
                 "Audio tokenizer is not loaded. Make sure you loaded the model "
                 "with OmniVoice.from_pretrained()."
             )
 
+        # 把 ref_audio 统一加载/归一化成模型采样率下的单声道波形
         if isinstance(ref_audio, str):
+            # 传的是文件路径: 直接按模型采样率读入
             ref_wav = load_audio(ref_audio, self.sampling_rate)
         else:
+            # 传的是 (波形, 采样率) 元组: 手动做格式归一
             waveform, sr = ref_audio
             if isinstance(waveform, torch.Tensor):
-                waveform = waveform.cpu().numpy()
+                waveform = waveform.cpu().numpy()  # tensor → numpy
             if waveform.ndim == 1:
-                waveform = waveform[np.newaxis, :]
+                waveform = waveform[np.newaxis, :]  # 1 维 → (1, T), 补出通道维
             if waveform.shape[0] > 1:
+                # 多声道 → 取均值降为单声道
                 waveform = np.mean(waveform, axis=0, keepdims=True)
             if sr != self.sampling_rate:
+                # 采样率不一致 → 重采样到模型采样率
                 waveform = torchaudio.functional.resample(
                     torch.from_numpy(waveform),
                     orig_freq=sr,
@@ -752,6 +774,8 @@ class OmniVoice(PreTrainedModel):
                 ).numpy()
             ref_wav = waveform
 
+        # 计算 RMS(均方根, 衡量响度); 过于安静(0<rms<0.1)时放大到 0.1, 避免克隆质量下降。
+        # 该 ref_rms 会随 prompt 返回, 用于给最终输出做音量归一。
         ref_rms = float(np.sqrt(np.mean(ref_wav**2)))
         if 0 < ref_rms < 0.1:
             ref_wav = ref_wav * 0.1 / ref_rms
@@ -760,10 +784,13 @@ class OmniVoice(PreTrainedModel):
             # Trim long reference audio (>20s) by splitting at the largest silence gap.
             # Skip trimming when ref_text is user-provided, otherwise the
             # trimmed audio will no longer match the full transcript.
+            # 在最大静音间隙处切分, 裁剪过长(>20s)的参考音频。
+            # 若 ref_text 是用户提供的, 则跳过裁剪——否则裁后音频会和完整文本对不上。
             if ref_text is None:
                 ref_wav = trim_long_audio(
                     ref_wav, self.sampling_rate, trim_threshold=20.0
                 )
+            # 去静音: 收敛中间长静音(>200ms), 并裁掉首尾静音(各保留 100/200ms)
             ref_wav = remove_silence(
                 ref_wav,
                 self.sampling_rate,
@@ -771,12 +798,14 @@ class OmniVoice(PreTrainedModel):
                 lead_sil=100,
                 trail_sil=200,
             )
+            # 去静音后若整段为空, 说明输入几乎全是静音, 报错提示关闭预处理
             if ref_wav.shape[-1] == 0:
                 raise ValueError(
                     "Reference audio is empty after silence removal. "
                     "Try setting preprocess_prompt=False."
                 )
 
+        # 参考音频过长(>20s)会拖慢生成、增大显存且降低克隆质量, 给出告警(建议 3-10s)
         ref_duration = ref_wav.shape[-1] / self.sampling_rate
         if ref_duration > 20.0:
             logger.warning(
@@ -787,18 +816,22 @@ class OmniVoice(PreTrainedModel):
             )
 
         # Auto-transcribe if ref_text not provided
+        # 未提供 ref_text 时, 用 ASR 模型自动转写参考音频得到文本
         if ref_text is None:
             if self._asr_pipe is None:
+                # ASR 尚未加载则现场加载
                 logger.info("ASR model not loaded yet, loading on-the-fly ...")
                 self.load_asr_model()
             ref_text = self.transcribe((ref_wav, self.sampling_rate))
             logger.debug("Auto-transcribed ref_text: %s", ref_text)
 
         # 长度要对齐 hop_length, 否则 audio_tokenizer.encode 出来的最后一帧不完整
+        # (把尾部不足一帧的采样点裁掉)
         chunk_size = self.audio_tokenizer.config.hop_length
         clip_size = int(ref_wav.shape[-1] % chunk_size)
         ref_wav = ref_wav[:, :-clip_size] if clip_size > 0 else ref_wav
         # numpy → torch at tokenizer boundary
+        # 在进 tokenizer 前把 numpy 波形转成 torch 张量, 并搬到 tokenizer 所在设备
         ref_wav_tensor = torch.from_numpy(ref_wav).to(self.audio_tokenizer.device)
         # 关键: 参考音频通过 HiggsAudioV2 tokenizer 编码为 (C=8, T) 的离散 token,
         # 后续整个推理过程都在 token 空间里进行, 不再接触波形.
@@ -808,13 +841,15 @@ class OmniVoice(PreTrainedModel):
             0
         )  # (C, T)
 
+        # 预处理开启时, 给参考文本末尾补标点 (有助于模型理解句子边界)
         if preprocess_prompt:
             ref_text = add_punctuation(ref_text)
 
+        # 打包成可复用的提示: token + 文本 + 响度
         return VoiceClonePrompt(
-            ref_audio_tokens=ref_audio_tokens,
-            ref_text=ref_text,
-            ref_rms=ref_rms,
+            ref_audio_tokens=ref_audio_tokens,  # 参考音频离散 token (C=8, T)
+            ref_text=ref_text,                  # 参考文本(可能为自动转写/补标点后)
+            ref_rms=ref_rms,                    # 参考响度, 用于输出音量归一
         )
 
     def _decode_and_post_process(
@@ -1022,6 +1057,10 @@ class OmniVoice(PreTrainedModel):
             VoiceClonePrompt, list[VoiceClonePrompt], None
         ] = None,
         instruct: Union[str, list[str], None] = None,
+        # 重要
+        # 是否对声音克隆的参考音频/参考文本做预处理 (仅在传 ref_audio 时生效):
+        #   True  -> 去除参考音频长静音、超长(>20s)按最大静音处裁剪、参考文本末尾补标点;
+        #   False -> 原样使用参考音频和文本 (如 ref_text 由用户精确提供、或评测复现时)。
         preprocess_prompt: bool = True,
         speed: Union[float, list[Optional[float]], None] = None,
         duration: Union[float, list[Optional[float]], None] = None,
@@ -1055,7 +1094,7 @@ class OmniVoice(PreTrainedModel):
         # ===== ② 解析语言与风格指令 =====
         # language: "English"/"en" 等 → 模型内部语言码 (见 lang_map)
         language_list = self._ensure_list(language, batch_size)
-        language_list = [_resolve_language(lang) for lang in language_list]
+        language_list = [_resolve_language(lang) for lang in language_list] # 把用户传入的 language 规范化成模型内部使用的语言代码 (如 "zh")
         # instruct: voice design 的 "male, british accent" 等 → 校验/规范化;
         # 文本含中文且未指定口音时, 指令会统一成中文形式 (use_zh)
         instruct_list = self._ensure_list(instruct, batch_size)
