@@ -57,6 +57,7 @@ flowchart LR
 | 第 17 章：OmniVoice 可控生成 | 做可控生成实验 | 讲清 ref_audio、instruct、参数、口音和风格控制 | 不要暗示所有控制因素都能完全独立 |
 | 第 18 章：扩展知识一 | 建立 AI 代码里的数字容器基础 | 讲清 Python list、NumPy array、PyTorch Tensor、shape、GPU、autograd | 不要写成 Python/NumPy/PyTorch API 大全，重点服务模型代码阅读 |
 | 第 19 章：扩展知识二 | 建立神经音频 codec 与语音 token 基础 | 讲清 codec、codebook、RVQ、hop_length、semantic token、acoustic token 和 OmniVoice 的 audio tokenizer 关系 | 不要写成论文综述，重点服务读懂 codec token 路线和项目里的 `(C=8, T)` |
+| 第 20 章：扩展知识三 | 建立推理、Transformer 前向计算和 OmniVoice 生成源码的连接 | 讲清 inference、forward、self-attention、hidden states、logits、mask-fill、generate / decode 分工 | 不要把 Transformer 等同于完整推理，也不要把 `forward()` 写成只属于训练 |
 
 ## 写作标准
 

@@ -89,6 +89,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 
 18. [扩展知识一：Python List、NumPy Array 与 PyTorch Tensor](chapter18_扩展知识一_数字容器.md)
 19. [扩展知识二：神经音频 Codec、Codebook 与语音 Token](chapter19_扩展知识二_神经音频Codec与语音Token.md)
+20. [扩展知识三：推理、Transformer 与 OmniVoice 前向计算](chapter20_扩展知识三_推理与Transformer前向计算.md)
 
 ## 章节导览
 
@@ -113,6 +114,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 | 第 17 章：OmniVoice 可控生成 | 理解如何控制音色、口音、速度和风格 | voice cloning、voice design、instruct、generation parameters | 回到第 6 章的信息分解，并落到实验方法 |
 | 第 18 章：扩展知识一 | 理解 Python list、NumPy array、PyTorch Tensor 的区别 | list、ndarray、Tensor、shape、GPU、autograd | 为阅读模型代码、数据预处理和推理张量形状打基础 |
 | 第 19 章：扩展知识二 | 理解 neural audio codec 如何把声音变成 token | codec、codebook、RVQ、semantic token、acoustic token | 为理解 OmniVoice 的 audio tokenizer、8 层 codebook token 和 codec token 路线打基础 |
+| 第 20 章：扩展知识三 | 理解推理、Transformer 前向计算和 OmniVoice `generate()` / `forward()` 的关系 | inference、forward、self-attention、hidden states、logits、mask-fill | 为读懂 OmniVoice 推理源码和训练 / 推理共用计算路径打基础 |
 
 ## 阅读路径
 
@@ -132,5 +134,7 @@ data cleaning（数据清洗） → feature extraction（特征提取） → ali
 如果目标是读懂项目代码里的数据形状和变量类型，可以补读第 18 章。它解释 Python list、NumPy array 和 PyTorch Tensor 在文本、音频、LLM 和 OmniVoice 推理链路中的分工。
 
 如果目标是理解 audio tokenizer、codebook、RVQ、semantic token 和 acoustic token，可以补读第 19 章。它把 EnCodec / SpeechTokenizer 这类资料中的核心概念映射到 OmniVoice 的 codec token 链路。
+
+如果目标是理解推理内部如何计算，可以补读第 20 章。它把《Attention Is All You Need》里的 self-attention 和 Transformer 前向计算，映射到 OmniVoice 的 `generate()`、`forward()`、`self.llm`、`audio_heads` 和 `audio_tokenizer.decode()`。
 
 如果目标是接手优化这本书，先读本章建立整体视角，再读 [AGENT_HANDOFF.md](AGENT_HANDOFF.md) 了解章节职责、写作规范和后续优化重点。
