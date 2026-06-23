@@ -55,6 +55,8 @@ flowchart LR
 | 第 15 章：OmniVoice 生态 | 澄清 OmniVoice 名称和边界 | 区分开源模型、网页服务、其他同名产品 | 不要把不同 OmniVoice 产品混写 |
 | 第 16 章：OmniVoice 本地实战 | 跑通本地零样本声音克隆 | 讲清环境、依赖、模型下载、参考音频、设备 fallback | 不要只给命令而不解释链路 |
 | 第 17 章：OmniVoice 可控生成 | 做可控生成实验 | 讲清 ref_audio、instruct、参数、口音和风格控制 | 不要暗示所有控制因素都能完全独立 |
+| 第 18 章：扩展知识一 | 建立 AI 代码里的数字容器基础 | 讲清 Python list、NumPy array、PyTorch Tensor、shape、GPU、autograd | 不要写成 Python/NumPy/PyTorch API 大全，重点服务模型代码阅读 |
+| 第 19 章：扩展知识二 | 建立神经音频 codec 与语音 token 基础 | 讲清 codec、codebook、RVQ、hop_length、semantic token、acoustic token 和 OmniVoice 的 audio tokenizer 关系 | 不要写成论文综述，重点服务读懂 codec token 路线和项目里的 `(C=8, T)` |
 
 ## 写作标准
 

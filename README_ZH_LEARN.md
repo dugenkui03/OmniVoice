@@ -149,6 +149,7 @@ sequenceDiagram
     participant DE as RuleDurationEstimator
     participant VC as create_voice_clone_prompt
     participant UA as utils.audio
+    participant ASR as _asr_pipe<br/>(Whisper, 可选)
     participant AT as audio_tokenizer<br/>(HiggsAudioV2)
     participant IT as _generate_iterative
     participant PI as _prepare_inference_inputs
@@ -164,7 +165,12 @@ sequenceDiagram
         Pre->>VC: create_voice_clone_prompt(ref_audio, ref_text)
         VC->>UA: load_audio / trim_long_audio / remove_silence
         UA-->>VC: 处理后的波形 + ref_rms
-        VC->>AT: encode(ref_waveform)
+        opt ref_text 为 None
+            VC->>ASR: transcribe(ref_waveform, sampling_rate)
+            ASR-->>VC: ref_text
+        end
+        VC->>VC: 按 hop_length 修剪尾部并转成 tensor
+        VC->>AT: encode(ref_waveform_tensor)
         AT-->>VC: ref_audio_tokens (C=8, T)
         VC-->>Pre: VoiceClonePrompt
     end
@@ -219,7 +225,9 @@ sequenceDiagram
 
 几点关键交互说明：
 
-- **音频 token 化**完全由 `audio_tokenizer`（`HiggsAudioV2TokenizerModel`）负责：参考音频在 `create_voice_clone_prompt` 阶段被 `encode` 成 `(8, T)` 的离散 token；生成结束后再由它 `decode` 还原成波形。OmniVoice 主干 LLM 只在“token 空间”里工作，从来不直接处理波形。
+- **`generate()` 是推理总入口**：`from_pretrained()` 只负责把主模型、`text_tokenizer`、`audio_tokenizer`、`feature_extractor`、`duration_estimator` 和可选 `_asr_pipe` 装好；真正的生成从 `model.generate(...)` 开始。
+- **音频 token 化**在 `generate()` 热路径里由 `audio_tokenizer` 完成：参考音频先按 `model.sampling_rate` 加载 / 重采样 / 去静音，再按 `hop_length` 修剪尾部，最后由 `audio_tokenizer.encode` 编成 `(8, T)` 的离散 token；生成结束后再由 `audio_tokenizer.decode` 还原成波形。`feature_extractor` 由 `from_pretrained()` 加载，主要提供采样率和前处理配置；数据预处理脚本中会显式调用它把 raw audio 整理成 `input_values`。OmniVoice 主干 LLM 只在“token 空间”里工作，从来不直接处理波形。
+- **ASR 只在缺少 `ref_text` 时参与**：Voice Cloning 模式如果只给 `ref_audio` 没给参考文本，`create_voice_clone_prompt` 会调用 `_asr_pipe` 自动转写；如果用户已经提供 `ref_text`，Whisper 不在这条链路里运行。
 - **文本特殊 tag**（`<|denoise|>`、`<|lang_start|>Lang<|lang_end|>`、`<|instruct_start|>...<|instruct_end|>`、`<|text_start|>...<|text_end|>`）全部由 `text_tokenizer` 处理；它和音频 token 在同一序列里拼接，靠 `audio_mask` 决定每个位置用哪份 embedding。
 - **CFG 在同一次 forward 内完成**：batch 维度 `2B`，前 B 是条件输入，后 B 去掉 style/text 作为无条件输入，省一次前向；`_predict_tokens_with_scoring` 把两者 logits 合并。
 - **迭代解码 N 步**：每步根据 `t_shift` 决定要 unmask 多少 token，按 `(confidence − layer_penalty) + Gumbel` 排序选 top-k 个 mask 位置填入并回写，未填位置保持 `audio_mask_id = 1024`。
@@ -231,7 +239,7 @@ sequenceDiagram
 
 非常薄的一层 argparse 包装，核心就两步：
 
-```122:155:omnivoice/cli/infer.py
+```119:153:omnivoice/cli/infer.py
     args = get_parser().parse_args()
 
     device = args.device or get_best_device()
@@ -271,7 +279,7 @@ sequenceDiagram
 
 ### 2. `OmniVoiceConfig` & 模型本体
 
-```216:229:omnivoice/models/omnivoice.py
+```242:256:omnivoice/models/omnivoice.py
         self.audio_embeddings = nn.Embedding(
             config.num_audio_codebook * config.audio_vocab_size,
             self.config.llm_config.hidden_size,
@@ -300,7 +308,7 @@ sequenceDiagram
 
 不仅加载主模型，还会自动准备好整套推理依赖：
 
-```261:288:omnivoice/models/omnivoice.py
+```355:387:omnivoice/models/omnivoice.py
             if not train_mode:
                 model.text_tokenizer = AutoTokenizer.from_pretrained(resolved_path)
 
@@ -331,7 +339,7 @@ sequenceDiagram
 
 ### 4. `generate()` 总流程
 
-```562:599:omnivoice/models/omnivoice.py
+```667:710:omnivoice/models/omnivoice.py
         full_task = self._preprocess_all(...)
 
         short_idx, long_idx = full_task.get_indices(
@@ -370,7 +378,7 @@ sequenceDiagram
 
 ### 5. 输入构造 `_prepare_inference_inputs`
 
-```1086:1138:omnivoice/models/omnivoice.py
+```1199:1243:omnivoice/models/omnivoice.py
         style_text = ""
         if denoise and ref_audio_tokens is not None:
             style_text += "<|denoise|>"
@@ -410,7 +418,7 @@ sequenceDiagram
 
 这是 OmniVoice 最核心的解码循环，思想类似 MaskGIT / 离散扩散：
 
-```1226:1248:omnivoice/models/omnivoice.py
+```1349:1374:omnivoice/models/omnivoice.py
         timesteps = _get_time_steps(
             t_start=0.0, t_end=1.0,
             num_step=gen_config.num_step,
@@ -433,7 +441,7 @@ sequenceDiagram
 
 每个 step 要 “unmask” 多少 token 由 `t_shift` 控制的 schedule 决定。然后：
 
-```1254:1296:omnivoice/models/omnivoice.py
+```1381:1430:omnivoice/models/omnivoice.py
         for step in range(gen_config.num_step):
             batch_logits = self(
                 input_ids=batch_input_ids,
@@ -471,7 +479,7 @@ sequenceDiagram
 
 - **Classifier-Free Guidance (CFG)**：batch 前一半 `[0..B)` 是带条件输入，后一半 `[B..2B)` 是去掉文本/style 的 “无条件” 输入（共享同一次 forward），两者 logits 在 `_predict_tokens_with_scoring` 中做 CFG。
 
-```1299:1322:omnivoice/models/omnivoice.py
+```1435:1467:omnivoice/models/omnivoice.py
     def _predict_tokens_with_scoring(self, c_logits, u_logits, gen_config):
         if gen_config.guidance_scale != 0:
             c_log_probs = F.log_softmax(c_logits, dim=-1)
@@ -502,7 +510,7 @@ sequenceDiagram
 
 ### 7. 长文本分块 `_generate_chunked`
 
-```857:894:omnivoice/models/omnivoice.py
+```972:1007:omnivoice/models/omnivoice.py
         if all(has_ref):
             for ci in range(max_num_chunks):
                 indices = [i for i in range(task.batch_size) if ci < len(all_chunks[i])]

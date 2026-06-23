@@ -209,14 +209,49 @@ class OmniVoiceConfig(PretrainedConfig):
 
 
 def _resolve_model_path(name_or_path: str) -> str:
+    """
+    Resolve a local model directory or Hugging Face repo id into a local path.
+
+    Args:
+        name_or_path: Either an existing local directory or a Hugging Face model
+            repository id such as ``k2-fsa/OmniVoice``.
+
+    Returns:
+        A filesystem path that can be passed to ``from_pretrained`` loaders.
+    """
     if os.path.isdir(name_or_path):
         return name_or_path
+
+    # Download to the Hugging Face cache only when the caller did not pass a
+    # local directory. snapshot_download returns the cached snapshot path.
     from huggingface_hub import snapshot_download
 
     return snapshot_download(name_or_path)
 
 
-class OmniVoice(PreTrainedModel):
+class EmbeddingAccessMixin:
+    """Embedding 访问适配 Mixin。
+
+    Mixin 可以理解成“能力拼装类”：它通常不单独实例化，而是被其他类继承，
+    给目标类补充一组小能力。这里补充的是 Hugging Face 模型常用的
+    ``get_input_embeddings`` / ``set_input_embeddings`` 接口。
+
+    OmniVoice 外层模型包了一层音频 token 逻辑，但文本 token 的 embedding
+    仍然由内部 LLM backbone 管理。这个 Mixin 把外层模型的 embedding 访问
+    转发给 ``self.llm``，方便新增特殊 token、resize embedding、加载
+    checkpoint 和训练初始化等通用流程复用 Transformers 的标准接口。
+    """
+
+    def get_input_embeddings(self):
+        """Return the inner LLM's text embedding table."""
+        return self.llm.get_input_embeddings()
+
+    def set_input_embeddings(self, value):
+        """Replace the inner LLM's text embedding table."""
+        self.llm.set_input_embeddings(value)
+
+
+class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
     _supports_flex_attn = True
     _supports_flash_attn_2 = True
     _supports_sdpa = True
@@ -394,7 +429,7 @@ class OmniVoice(PreTrainedModel):
 
     def load_asr_model(self, model_name: str = "openai/whisper-large-v3-turbo"):
         """Load a Whisper ASR model for reference audio transcription.
-
+           加载一个 asr 模型用来识别音频字幕
         Args:
             model_name: HuggingFace model name or local path for the Whisper model.
         """
@@ -420,7 +455,10 @@ class OmniVoice(PreTrainedModel):
         self,
         audio: Union[str, tuple],
     ) -> str:
-        """Transcribe audio using the loaded Whisper ASR model.
+        """Transcribe audio with the loaded Whisper ASR pipeline.
+
+        使用已加载的 Whisper ASR 模型把参考音频转成文字。这个方法主要用于
+        Voice Cloning 模式下用户没有传入 ``ref_text`` 的场景。
 
         Args:
             audio: File path or ``(waveform, sample_rate)`` tuple.
@@ -430,29 +468,28 @@ class OmniVoice(PreTrainedModel):
         Returns:
             Transcribed text.
         """
+        # ASR pipeline 是可选组件, 只有 load_asr_model() 被调用后才会存在.
         if self._asr_pipe is None:
             raise RuntimeError(
                 "ASR model is not loaded. Call model.load_asr_model() first."
             )
 
         if isinstance(audio, str):
+            # transformers pipeline 可以直接接收音频文件路径.
             return self._asr_pipe(audio)["text"].strip()
         else:
             waveform, sr = audio
             if isinstance(waveform, torch.Tensor):
+                # Whisper pipeline 接收 numpy array, 这里把 torch.Tensor 搬回 CPU 后转换.
                 waveform = waveform.cpu().numpy()
+            # pipeline 期望单通道 1-D waveform; 去掉 (1, T) 里的通道维.
             waveform = np.squeeze(waveform)  # (1, T) or (T,) → (T,)
             audio_input = {
                 "array": waveform,
                 "sampling_rate": sr,
             }
+            # 返回结果是 {"text": "..."} 形式, 只保留转写文本并去掉首尾空白.
             return self._asr_pipe(audio_input)["text"].strip()
-
-    def get_input_embeddings(self):
-        return self.llm.get_input_embeddings()
-
-    def set_input_embeddings(self, value):
-        self.llm.set_input_embeddings(value)
 
     def _prepare_embed_inputs(
         self, input_ids: torch.Tensor, audio_mask: torch.Tensor
@@ -491,9 +528,39 @@ class OmniVoice(PreTrainedModel):
         document_ids: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
     ):
+        """执行一次 OmniVoice 主模型前向计算, 并在训练时计算 audio token loss.
 
+        这个方法位于训练 step 的核心路径中: ``OmniTrainer.train`` 取出一个
+        batch 后调用 ``self.model(**batch)``, 实际进入的就是这里。forward
+        只负责根据当前权重做预测和计算 loss; 真正的反向传播和参数更新发生在
+        外层训练器里的 ``accelerator.backward(loss)`` 和 ``optimizer.step()``。
+
+        Args:
+            input_ids: 混合序列 token, 形状通常为 ``(B, C, S)``。文本位置在
+                各 codebook 层复制文本 token; 音频位置是多层 audio codebook token。
+            audio_mask: 标记哪些位置是音频 token, 形状为 ``(B, S)``。
+            labels: 训练目标 audio token, 形状通常为 ``(B, C, S)``。值为
+                ``-100`` 的位置会被 cross entropy 忽略。
+            attention_mask: 普通 attention mask, 常用于 SDPA 路径。
+            document_ids: sequence packing 时的样本边界, 用于构造 flex attention
+                block mask, 避免不同样本错误互相 attend。
+            position_ids: 可选位置 id, 透传给底层 LLM。
+
+        Returns:
+            ``OmniVoiceModelOutput``:
+                - ``logits``: 每层 audio codebook 的分类 logits, 形状为
+                  ``(B, C, S, audio_vocab_size)``。
+                - ``loss``: 如果传入 labels, 则为 8 层 codebook 加权后的
+                  cross entropy loss; 否则为 ``None``。
+        """
+
+        # 1. 把输入序列变成 Transformer 可处理的 embedding。
+        #    文本位置走 LLM 原生 text embedding; 音频位置走 audio_embeddings。
         inputs_embeds = self._prepare_embed_inputs(input_ids, audio_mask)
 
+        # 2. flex_attention 的训练路径会使用 document_ids 表示 packed sequence
+        #    里的样本边界。这里把边界转换成 block mask, 防止多个样本拼接后
+        #    在 attention 中互相看见。
         if attention_mask is None and document_ids is not None:
             if not _flex_attention_available:
                 raise RuntimeError(
@@ -501,29 +568,51 @@ class OmniVoice(PreTrainedModel):
                     "If you do not need flex_attention, set "
                     '"attn_implementation": "sdpa" in your training config.'
                 )
+            # create_block_mask 是 PyTorch flex_attention 的辅助函数:
+            # 它把一个“哪些 query token 可以看哪些 key token”的规则函数,
+            # 编译成更高效的 BlockMask, 后面传给 LLM attention 使用。
+            #
+            # _get_packed_mask(document_ids[0]) 会生成规则函数:
+            #   只有 document_id 相同的 token 才能互相 attend。
+            # 这样 sequence packing 把多个样本拼成一个长序列后,
+            # 不同原始样本之间仍然不会在 self-attention 中互相泄漏信息。
             attention_mask = create_block_mask(
+                # document_ids shape 通常是 [1, S], 取第 0 行得到长度为 S 的样本 id 序列。
+                # to(inputs_embeds.device) 确保 mask 规则和模型输入在同一设备上。
                 _get_packed_mask(
                     document_ids[0].to(inputs_embeds.device),
                 ),
+                # B/H 设为 None 表示这个 mask 规则对所有 batch 和 attention head 共享。
                 B=None,
                 H=None,
+                # Q_LEN/KV_LEN 是当前 packed 序列的 query/key 长度; 自注意力下二者相同。
                 Q_LEN=input_ids.size(-1),
                 KV_LEN=input_ids.size(-1),
+                # _compile=True 让 flex_attention 编译这个 BlockMask, 提升训练时 attention 效率。
                 _compile=True,
                 device=inputs_embeds.device,
             )
 
+        # 3. 底层 Transformer / LLM 主干做上下文建模。
+        #    这里输入已经是 inputs_embeds, 所以不会再走普通文本 token embedding。
         llm_outputs = self.llm(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             return_dict=True,
             position_ids=position_ids,
         )
+        # hidden_states 是 Transformer 主干输出的上下文向量序列, 不是最终 token。
+        # 形状通常是 [B, S, H]: batch 内每个序列位置都有一个 H 维向量。
+        # 每个向量已经融合了该位置能 attend 到的文本、参考音频和目标 token 上下文,
+        # 后续 audio_heads 会把这些向量再投影成 audio token 的分类 logits。
         hidden_states = llm_outputs[0]
 
+        # 4. 没有 labels 时只返回 logits, 常见于只想拿预测分布的场景。
+        #    训练 / eval 时 dataloader 会提供 labels, 下面才会计算 loss。
         loss = None
 
-        # Shape: [B, S, C * Vocab]
+        # 5. audio_heads 把每个时间位置的 hidden state 投影成 8 层 codebook
+        #    的 token 分类分布。Shape: [B, S, C * Vocab]
         batch_size, seq_len, _ = hidden_states.shape
         logits_flat = self.audio_heads(hidden_states)
         # Shape: [B, S, C, Vocab] -> [B, C, S, Vocab]
@@ -536,6 +625,8 @@ class OmniVoice(PreTrainedModel):
 
         if labels is not None:
 
+            # 6. 逐 token 计算交叉熵。每个位置都是一次 audio token 分类:
+            #    模型给出 vocab 概率分布, labels 给出正确 token id。
             # audio_logits.permute(0, 3, 1, 2):
             # [Batch, Layer, Seq, Vocab] -> [Batch, Vocab, Layer, Seq]
             # per_token_loss shape: [Batch, Layer, Seq]，ignore -100
@@ -545,14 +636,18 @@ class OmniVoice(PreTrainedModel):
                 reduction="none",
                 ignore_index=-100,
             )
+            # 7. valid_mask 只保留真正需要监督的位置; labels=-100 的位置不计入 loss。
             # valid_mask shape: [Batch, Layer, Seq]
             valid_mask = (labels != -100).float()
 
+            # 8. 先分别统计每一层 codebook 的平均 loss。
             # layer_means shape: [num_layers]
             layer_means = (per_token_loss * valid_mask).sum(
                 dim=(0, 2)
             ) / valid_mask.sum(dim=(0, 2)).clamp(min=1.0)
 
+            # 9. 不同 codebook 层的信息量不同, 用配置里的 audio_codebook_weights
+            #    归一化后加权求和, 得到最终训练 loss。
             weights = torch.tensor(
                 self.normalized_audio_codebook_weights, device=audio_logits.device
             )
@@ -825,8 +920,10 @@ class OmniVoice(PreTrainedModel):
             ref_text = self.transcribe((ref_wav, self.sampling_rate))
             logger.debug("Auto-transcribed ref_text: %s", ref_text)
 
-        # 长度要对齐 hop_length, 否则 audio_tokenizer.encode 出来的最后一帧不完整
-        # (把尾部不足一帧的采样点裁掉)
+        # hop_length 是 audio tokenizer 每前进一步跨过的采样点数。
+        # 例如 24kHz 下 hop_length=960 约等于 40ms, 即 1 秒约 25 个 token 帧。
+        # 参考音频长度要对齐 hop_length, 否则 encode 出来的最后一帧会不完整;
+        # 这里把尾部不足一帧的采样点裁掉, 保证后续 audio tokens 的时间帧整齐。
         chunk_size = self.audio_tokenizer.config.hop_length
         clip_size = int(ref_wav.shape[-1] % chunk_size)
         ref_wav = ref_wav[:, :-clip_size] if clip_size > 0 else ref_wav
