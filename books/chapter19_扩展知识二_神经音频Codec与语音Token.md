@@ -337,6 +337,63 @@ batch
 
 批量样本的实际长度可能不同。工程实现通常会补齐到当前 batch 的最大长度，再使用 attention mask 区分有效位置和 padding。OmniVoice 的迭代推理还会为 Classifier-Free Guidance 构造条件与无条件两份输入，因此内部某次 `forward()` 的第一维可能暂时表现为 `2B`；它仍然来源于原始的 `B` 条 TTS 样本。
 
+### `Tensor.repeat()` 如何扩大维度
+
+PyTorch 的 `Tensor.repeat()` 按指定倍数重复每个维度的数据。对于形状为 `(A,B)` 的二维 Tensor：
+
+```text
+原形状：(A, B)
+repeat(x, y)
+新形状：(A × x, B × y)
+```
+
+`repeat()` 的参数表示**重复倍数**，不是最终维度大小。例如：
+
+```python
+x = torch.tensor([[10, 20, 30]])  # shape: (1, 3)
+```
+
+执行 `x.repeat(8, 1)` 时，第 0 维扩大 8 倍，第 1 维保持不变：
+
+```text
+原形状：(1, 3)
+repeat：(8, 1)
+新形状：(1×8, 3×1) = (8, 3)
+
+[
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30],
+  [10, 20, 30]
+]
+```
+
+执行 `x.repeat(1, 2)` 时，第 0 维保持不变，第 1 维扩大 2 倍：
+
+```text
+原形状：(1, 3)
+repeat：(1, 2)
+新形状：(1×1, 3×2) = (1, 6)
+
+[[10, 20, 30, 10, 20, 30]]
+```
+
+OmniVoice 的文本 tokenizer 先产生形状为 `(1,N)` 的文本 token。为了和 8 层音频 codebook Tensor 对齐，它执行：
+
+```text
+(1, N)
+  ↓ repeat(8, 1)
+(8, N)
+  ↓ unsqueeze(0)，在最前面增加 batch 维度
+(1, 8, N) = (B, C, S)
+```
+
+这里复制 8 份只是为了统一 Tensor 形状，并不表示文本本身具有 8 层 codebook。后续生成文本 embedding 时只读取其中第 0 层；音频位置才会使用 8 层 codebook ID。
+
 整数 token Tensor 进入 Transformer 前，还会经过 embedding lookup：
 
 ```text

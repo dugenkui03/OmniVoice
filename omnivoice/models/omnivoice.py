@@ -1880,6 +1880,12 @@ def _tokenize_with_nonverbal_tags(text: str, tokenizer) -> torch.Tensor:
     Non-verbal tags are tokenized standalone to guarantee consistent token
     IDs regardless of surrounding language context (Chinese, English, etc.).
 
+    ``non-verbal tags``（非语言标签）表示不是普通文字、但需要模型生成的
+    笑声、叹气、语气或情绪声音，例如 ``[laughter]``（笑声）和
+    ``[sigh]``（叹气）。例如输入 ``"你好[laughter]很高兴见到你"`` 时，
+    会分别处理 ``"你好"``、``"[laughter]"`` 和 ``"很高兴见到你"``，
+    避免标签的 token ID 受到前后中文或英文文本影响。
+
     Args:
         text: Full text string potentially containing non-verbal tags.
         tokenizer: HuggingFace text tokenizer instance.
@@ -1915,27 +1921,53 @@ def _tokenize_with_nonverbal_tags(text: str, tokenizer) -> torch.Tensor:
 
 
 def _combine_text(text, ref_text: Optional[str] = None) -> str:
+    """合并参考文本与目标文本，并清理成 tokenizer 使用的单行字符串。
 
-    # combine with reference text if not None
+    Args:
+        text: 准备合成语音的目标文本。
+        ref_text: 参考音频对应的转写文本；没有参考文本时传 ``None``。
+
+    Returns:
+        清理后的完整文本。存在 ``ref_text`` 时，顺序为“参考文本 + 目标文本”；
+        否则只返回清理后的目标文本。
+
+    Example:
+        输入::
+
+            ref_text = " 你好，我是小明。\\n"
+            text = "  今天（天气）  很好。\\t "
+
+        输出::
+
+            "你好，我是小明。今天(天气)很好。"
+    """
+
+    # 有参考文本时，分别删除两段文本首尾的空白，再按
+    # “参考文本 + 一个空格 + 目标文本”的顺序拼接。
+    # ref_text 是参考音频说了什么，text 是希望模型接着生成什么。
     if ref_text:
         full_text = ref_text.strip() + " " + text.strip()
     else:
+        # 没有参考文本（如 Auto / Voice Design 模式）时，只清理目标文本首尾空白。
         full_text = text.strip()
 
-    # filter out newline / carriage-return characters
+    # 删除换行符 \n 和回车符 \r，把多行输入整理成单行。
     full_text = re.sub(r"[\r\n]+", "", full_text)
 
-    # replace Chinese parentheses with English ones
+    # 将中文全角括号替换为英文半角括号，统一标点形式。
     full_text = full_text.replace("\uff08", "(").replace("\uff09", ")")
 
-    # collapse consecutive spaces / tabs into a single space
+    # 把连续的普通空格或制表符压缩成一个空格。
     full_text = re.sub(r"[ \t]+", " ", full_text)
 
-    # remove spaces around chinese characters
+    # 删除汉字前后的空白。例如“你好 世界”会变成“你好世界”。
+    # chinese_range 匹配一个常用汉字；两个分支分别匹配“汉字后的空白”
+    # 和“汉字前的空白”。
     chinese_range = r"[\u4e00-\u9fff]"
     pattern = rf"(?<={chinese_range})\s+|\s+(?={chinese_range})"
     full_text = re.sub(pattern, "", full_text)
 
+    # 返回 tokenizer 最终接收的单行文本。
     return full_text
 
 
