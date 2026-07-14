@@ -1381,7 +1381,13 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             num_target_tokens: Number of audio tokens to generate.
             ref_text: Optional reference text for voice cloning.
             ref_audio_tokens: Optional reference audio tokens for voice cloning.
-                with shape (C, T).
+                Shape is ``(C, T)``: ``C`` is the number of codebook layers
+                (fixed to 8 in OmniVoice), and ``T`` is the number of encoded
+                time frames. At 24 kHz with ``hop_length=960``, the tokenizer
+                produces about 25 frames per second, so longer reference audio
+                normally produces a larger ``T`` (``T ≈ duration_seconds × 25``).
+                即参考音频的多层 codebook token 表示：C=8，T 为时间帧数；
+                音频越长，T 通常越大。
             lang: Optional language ID.
             instruct: Optional style instruction for voice design.
             denoise: Whether to include the <|denoise|> token.
