@@ -132,22 +132,39 @@ def get_parser():
 
 
 def load_whisper_model(model_dir, device):
+    """加载 Whisper 语音识别(ASR)模型, 用于 WER 评估时把语音转写成文本。
+
+    Args:
+        model_dir: 模型根目录 (内部拼出 wer/whisper-large-v3/ 子路径)。
+        device: 运行设备, 如 "cuda"/"cuda:0"/"cpu"。
+    Returns:
+        一个可直接调用的 ASR pipeline; 模型不存在时返回 None。
+    """
+    # 拼出 Whisper 权重所在目录; 不存在则记录错误并返回 None (由调用方处理)
     model_path = os.path.join(model_dir, "wer/whisper-large-v3/")
     if not os.path.exists(model_path):
         logging.error(f"Whisper model not found at {model_path}.")
         return None
 
-    import transformers
+    import transformers  # 延迟导入: 仅在需要评估时才加载这个较重的库
 
     # Suppress transformers logging
+    # 只保留 error 级别日志, 屏蔽 transformers 加载时的大量 info/warning 噪音
     transformers.logging.set_verbosity_error()
 
     logging.info(f"Loading Whisper model on {device}...")
+    # transformers.pipeline: HuggingFace 高层封装, 把"预处理→模型推理→后处理"
+    # 打包成一个开箱即用的可调用对象, 无需手动拼 tokenizer/feature_extractor/model。
     pipe = transformers.pipeline(
+        # 任务类型: 自动语音识别 (语音波形 → 文本)
         "automatic-speech-recognition",
+        # 模型来源: 本地权重目录 (也可为 HuggingFace 仓库名)
         model=model_path,
+        # 长音频分块: 每 30 秒切一段分别识别再拼接, 避免超长输入爆显存
         chunk_length_s=30,
+        # 权重精度: GPU(cuda) 用 float16 省显存/提速, 否则用 float32 保证兼容
         dtype=torch.float16 if "cuda" in str(device) else torch.float32,
+        # 运行设备: 把模型放到指定的 GPU/CPU 上
         device=device,
     )
     return pipe

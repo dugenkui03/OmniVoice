@@ -442,6 +442,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         model_name = _resolve_model_path(model_name)
 
+        # 建好 ASR 流水线并挂到 self._asr_pipe 上, 供 transcribe() 复用:
+        #   任务= 自动语音识别(语音→文本); model= 上面解析好的本地/HF 路径;
+        #   dtype= GPU 用 fp16 省显存提速, CPU 用 fp32; device_map= 放到模型所在设备。
         self._asr_pipe = hf_pipeline(
             "automatic-speech-recognition",
             model=model_name,
@@ -450,6 +453,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         )
         logger.info("ASR model loaded on %s.", self.device)
 
+    # @torch.inference_mode(): 推理专用装饰器, 关闭梯度记录, 省显存/提速
+    # (转写不需要反向传播)
     @torch.inference_mode()
     def transcribe(
         self,
@@ -468,27 +473,37 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         Returns:
             Transcribed text.
         """
-        # ASR pipeline 是可选组件, 只有 load_asr_model() 被调用后才会存在.
+        # 前置检查: 必须先 load_asr_model() 才有 _asr_pipe 可用
         if self._asr_pipe is None:
             raise RuntimeError(
                 "ASR model is not loaded. Call model.load_asr_model() first."
             )
 
         if isinstance(audio, str):
-            # transformers pipeline 可以直接接收音频文件路径.
+            # 传的是文件路径: pipeline 能直接读, 取出 text 并去掉首尾空白
             return self._asr_pipe(audio)["text"].strip()
         else:
+            # 传的是 (波形, 采样率) 元组: 需先整理成 pipeline 要的输入格式
             waveform, sr = audio
+            # 波形可能是 torch 张量或 numpy 数组; 统一成 numpy 供后续处理:
+            # 若是 torch 张量, 先 .cpu() 从 GPU 搬回内存(numpy 只能在 CPU),
+            # 再 .numpy() 转成 numpy; 本来就是 numpy 则跳过此 if。
             if isinstance(waveform, torch.Tensor):
-                # Whisper pipeline 接收 numpy array, 这里把 torch.Tensor 搬回 CPU 后转换.
-                waveform = waveform.cpu().numpy()
-            # pipeline 期望单通道 1-D waveform; 去掉 (1, T) 里的通道维.
-            waveform = np.squeeze(waveform)  # (1, T) or (T,) → (T,)
+                waveform = waveform.cpu().numpy()  # torch → numpy
+            # np.squeeze: 删掉数组中所有长度为1的维度(任意位置都删), 把波形压成一维 (T,)。
+            # 形状记号说明: (x, y) 描述数组形状, 表示 x 行、每行 y 个数字;
+            #   (T,)   一维: 一排 T 个数;
+            #   (1, T) 二维: 1 行 T 列, 即单声道(声道维度长度为1)。
+            # 这里的波形至多是 (1, T), 因此 squeeze 后统一变成 (T,);
+            # 本来就是 (T,) 则无长度为1的维度可删, 原样返回。
+            # (若为真正多声道如 (2, T), 长度2的维度不会被删——但上游已保证是单声道)
+            waveform = np.squeeze(waveform)  # (1, T) or (T,) → (T,) 压成一维
+            # pipeline 接受 {"array": 一维波形, "sampling_rate": 采样率} 形式的输入
             audio_input = {
                 "array": waveform,
                 "sampling_rate": sr,
             }
-            # 返回结果是 {"text": "..."} 形式, 只保留转写文本并去掉首尾空白.
+            # 调用 ASR pipeline 得到 {"text": ...}, 取文本并去首尾空白
             return self._asr_pipe(audio_input)["text"].strip()
 
     def _prepare_embed_inputs(
