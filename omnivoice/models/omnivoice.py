@@ -137,25 +137,61 @@ class OmniVoiceGenerationConfig:
 
 @dataclass
 class GenerationTask:
-    batch_size: int
-    texts: List[str]
-    target_lens: List[int]
-    langs: List[Optional[str]]
-    instructs: List[Optional[str]]
-    ref_texts: List[Optional[str]]
-    ref_audio_tokens: List[Optional[torch.Tensor]]
-    ref_rms: List[Optional[float]]
-    speed: Optional[List[float]] = None
+    """一次 TTS 推理的内部任务包。
+
+    它不是用户直接调用 ``generate()`` 时传入的原始参数，而是
+    ``_preprocess_all()`` 完成 batch 归一化、语言解析、参考音频编码和
+    目标时长估计后得到的结构化结果。除 ``batch_size`` 外，其余列表字段
+    都按 batch 对齐：同一索引 ``i`` 表示同一条 TTS 样本。
+    """
+    batch_size: int  # 当前任务包含的 TTS 样本数，也就是各平行列表的长度
+    texts: List[str]  # 每条样本要合成的目标文本
+    target_lens: List[int]  # 每条目标音频要生成的 token 帧数，直接影响输出时长
+    langs: List[Optional[str]]  # 解析后的语言代码，例如 "zh"、"en"；未指定时为 None
+    instructs: List[Optional[str]]  # Voice Design 风格指令；未使用时为 None
+    ref_texts: List[Optional[str]]  # 参考音频对应的文本；非声音克隆模式为 None
+    ref_audio_tokens: List[Optional[torch.Tensor]]  # 参考音频 token，单项形状 (C=8, T)
+    ref_rms: List[Optional[float]]  # 参考音频响度 RMS，用于生成结果的音量归一
+    speed: Optional[List[float]] = None  # 每条样本的时长缩放比例，长文本分块时使用
 
     def get_indices(self, config: OmniVoiceGenerationConfig, frame_rate: int):
+        """按预计输出长度，把 batch 样本划分为短音频和长音频两组。
+
+        Args:
+            config: OmniVoice 生成参数。其中 ``audio_chunk_threshold`` 表示
+                启用分块生成的音频时长阈值，单位为秒。
+            frame_rate: Audio Tokenizer 每秒产生的 token 时间帧数。
+                当前模型通常为 25，即 1 秒音频约对应 25 个 token 帧。
+
+        Returns:
+            一个包含两个列表的元组 ``(short_idx, long_idx)``：
+
+            - ``short_idx``：预计目标帧数小于或等于阈值的样本下标，
+              这些样本走普通 batch 迭代生成。
+            - ``long_idx``：预计目标帧数大于阈值的样本下标，
+              这些样本走分块生成，以控制显存占用。
+
+        ``audio_chunk_threshold`` 乘以 ``frame_rate`` 后，会从秒数阈值
+        转换为可与 ``target_lens`` 比较的 token 帧数阈值。
+        """
+        # 例如阈值为 30 秒、帧率为 25，则 threshold=750 个目标 token 帧。
         threshold = int(config.audio_chunk_threshold * frame_rate)
+        # enumerate 同时取得样本下标 i 和该样本的目标帧数 l。
         short_idx = [i for i, l in enumerate(self.target_lens) if l <= threshold]
         long_idx = [i for i, l in enumerate(self.target_lens) if l > threshold]
         return short_idx, long_idx
 
     def slice_task(self, indices: List[int]):
+        """根据样本下标提取子任务，并保持所有 batch 字段一一对应。
+
+        例如 ``indices=[0, 2]`` 会从当前任务中取出第 0、2 条样本，
+        生成一个 ``batch_size=2`` 的新 ``GenerationTask``。该方法用于把
+        ``get_indices()`` 得到的短样本和长样本分别交给不同生成路径。
+        """
+        # 空下标没有可生成的样本，返回 None，调用方会跳过该生成分支。
         if not indices:
             return None
+        # 所有字段必须使用相同 indices 切片，保证文本、语言、参考音频等仍属于同一条样本。
         return GenerationTask(
             batch_size=len(indices),
             texts=[self.texts[i] for i in indices],
@@ -518,11 +554,11 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         input_ids:  (B, C, S),  audio_mask: (B, S),  返回: (B, S, H).
         """
-        # 文本 embedding: 8 层 token 是同一文本的复制, 取第 0 层即可
+        # 文本 embedding: input_ids[:, 0, :] 表示每个 batch 样本都取第 0 个 codebook 的完整序列；8 层文本 token 相同，取一层即可
         text_embeds = self.get_input_embeddings()(input_ids[:, 0, :])
 
         # 为不同 codebook 加上独立偏移, 让 8 层共享同一张大 embedding 表也不会撞 id.
-        # input_ids * audio_mask: 文本位置的 id 先归零, 避免给文本位置查到错的音频行
+        # input_ids * audio_mask.unsqueeze(1): mask 为 1/True 时保留原 ID，为 0/False 时将该位置置 0
         # (后面会被 torch.where 丢弃, 但归零更安全, 避免 id 越界).
         shifted_ids = (
             input_ids * audio_mask.unsqueeze(1)
@@ -1424,7 +1460,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             self.device
         )  # [1, C, N2]
 
-        # 3) Target 段: 全部初始化为 MASK, 由后续迭代解码逐步填充
+        # 3) Target 段: 全部初始化为 MASK, 由后续迭代解码逐步填充。
+        # torch.full(size, fill_value, ...) 会创建指定形状的 Tensor，
+        # 并把其中每个位置都初始化成同一个值。这里各参数表示:
+        #   size=(1, C, T): B=1 条样本、C=8 层 codebook、T=num_target_tokens 个目标时间帧;
+        #   fill_value=audio_mask_id: 所有目标位置先填 MASK ID（当前为 1024）;
+        #   dtype=torch.long: 使用整数类型保存 token ID;
+        #   device=self.device: 直接在主模型所在的 CPU / GPU / MPS 设备上创建。
+        # 得到的形状为 (1, 8, T)，之后模型会逐轮把 MASK 替换成预测出的音频 token ID。
         target_audio_tokens = torch.full(
             (1, self.config.num_audio_codebook, num_target_tokens),
             self.config.audio_mask_id,
@@ -1437,19 +1480,51 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         if ref_audio_tokens is not None:
             parts.append(ref_audio_tokens.unsqueeze(0).to(self.device))
         parts.append(target_audio_tokens)
+        # torch.cat(tensors, dim) 把多个 Tensor 沿某个“已有维度”首尾拼接:
+        #   tensors=parts: 待拼接的 Tensor 列表; 每项形状均为 (B=1, C=8, 各自序列长度)。
+        #   dim=2: 沿第 2 维（从 0 开始计数的第三维，即序列维 S）拼接。
+        # 它会保持相同的 batch 和 codebook 对应关系，分别拼接每个 [b, c, :] 序列;
+        # token ID 不做算术加法，只有最后一维的长度相加。例如:
+        #   (1, 8, N1) + (1, 8, N2) + (1, 8, T_ref) + (1, 8, T_target)
+        #   -> (1, 8, N1 + N2 + T_ref + T_target)
+        # 最终内容顺序为 [style][text][可选 ref audio][target MASK]。
         cond_input_ids = torch.cat(parts, dim=2)
 
         # audio_mask 标识 "哪些位置应当用音频 embedding": ref_audio + target 区域
+        # Tensor.shape 是形状属性，返回类似元组的 torch.Size。
+        # 例如 cond_input_ids.shape == [1, 8, 100] 时:
+        #   shape[0] == 1   -> 第 0 维 B（batch 数量）
+        #   shape[1] == 8   -> 第 1 维 C（codebook 层数）
+        #   shape[2] == 100 -> 第 2 维 S（拼接后的序列总长度）
+        # 因此这里取 shape[2]，保存 style/text/ref audio/target 拼接后的总长度。
         cond_total_length = cond_input_ids.shape[2]
         cond_audio_start_idx = cond_total_length - num_target_tokens
         if ref_audio_tokens is not None:
             cond_audio_start_idx -= ref_audio_tokens.size(-1)
 
+        # torch.zeros 创建形状为 (B=1, S=cond_total_length) 的全 0 Tensor:
+        #   dtype=torch.bool 会把 0 表示成 False;
+        #   device=self.device 让 mask 和主模型位于同一 CPU / GPU / MPS 设备。
+        # 这个 Tensor 不是音频数据，而是标记每个混合序列位置属于文本还是音频的布尔地图。
         cond_audio_mask = torch.zeros(
             1, cond_total_length, dtype=torch.bool, device=self.device
         )
+        # [0, cond_audio_start_idx:] 表示第 0 条样本中，从音频起始下标直到序列末尾的所有位置。
+        # 将这些位置设为 True 后，mask 结构类似:
+        #   [False, ..., False, True, ..., True]
+        #    style/text 区域       ref audio/target audio 区域
+        # 后续 _prepare_embed_inputs 会据此让 False 位置走文本 embedding，
+        # True 位置走 8 层 codebook 的音频 embedding。
         cond_audio_mask[0, cond_audio_start_idx:] = True
 
+        # 返回主模型后续前向计算所需的两项输入:
+        #   input_ids: 形状 (1, 8, S) 的完整混合 token 序列，
+        #       内容为 [style][text][可选 ref audio][target MASK]。
+        #   audio_mask: 形状 (1, S) 的布尔类型标记，
+        #       False 表示 style/text 位置，True 表示 ref audio/target audio 位置。
+        # audio_mask 用于选择文本或音频 embedding，不是 attention_mask。
+        # 同时要和值为 1024 的 target MASK token 区分: 前者是位置类型标记，
+        # 后者是“尚未生成的目标音频 token”所使用的整数 ID。
         return {
             "input_ids": cond_input_ids,
             "audio_mask": cond_audio_mask,
@@ -1886,33 +1961,55 @@ def _tokenize_with_nonverbal_tags(text: str, tokenizer) -> torch.Tensor:
     会分别处理 ``"你好"``、``"[laughter]"`` 和 ``"很高兴见到你"``，
     避免标签的 token ID 受到前后中文或英文文本影响。
 
+    一句话理解：将标签单独分割出来、单独 tokenize（标签的 ``[]`` 原样保留参与
+    tokenize，不剥离），再与普通文字段拼接，从而保证标签 token id 的稳定性。
+
     Args:
         text: Full text string potentially containing non-verbal tags.
         tokenizer: HuggingFace text tokenizer instance.
     Returns:
         Token IDs tensor of shape (1, seq_len).
     """
-    parts = []
-    last_end = 0
+    parts = []  # 收集每一段(普通文字段 / 标签段)的 token id 列表，最后按序拼接
+    last_end = 0  # 上一个已处理片段的结束位置（游标），用于切出"标签之间的普通文字"
+
+    # 用正则扫描出所有非语言标签 [laughter]、[sigh] 等，逐个处理
+    # finditer 产出每个匹配的 Match 对象，含 start()/end()/group()
     for m in _NONVERBAL_PATTERN.finditer(text):
+        # m.start() > last_end 说明当前标签前面还有"普通文字段"未处理（即上一个标签结尾到本标签开头之间有内容）
+        # 例如 "你好[laughter]很高兴" 中，处理到 [laughter] 时，last_end=0、m.start()=2，
+        # 此时需要先切出 "你好" 这段普通文字单独 tokenize
         if m.start() > last_end:
-            segment = text[last_end : m.start()]
+            segment = text[last_end : m.start()]  # 切出标签前面的普通文字段
+            # add_special_tokens=False: 只切普通子词，不自动加 [CLS]/[SEP] 等特殊 token。
+            # 因为这里要把多段分别 tokenize 再拼接，若每段都自动加特殊 token，
+            # 拼接后会出现重复的 [CLS]/[SEP]，破坏整个序列结构（特殊 token 应由上层统一加一次）。
             ids = tokenizer(segment, add_special_tokens=False).input_ids
-            if ids:
+            if ids:  # 该段可能为空或 token 化后为空，非空才收集
                 parts.append(ids)
+
+        # 标签本身（如 "[laughter]"）单独 tokenize，保证其 token id 不受前后文语言影响
+        # 同样用 add_special_tokens=False，避免给标签段单独塞特殊 token
         tag_ids = tokenizer(m.group(), add_special_tokens=False).input_ids
         if tag_ids:
             parts.append(tag_ids)
-        last_end = m.end()
+
+        last_end = m.end()  # 移动游标到当前标签结尾，为下一轮切分做准备
+
+    # 循环结束后，若游标还没到文本末尾，说明末尾还有普通文字段（最后一个标签之后的内容）需要处理
+    # 例如 "你好[laughter]很高兴见到你" 处理完 [laughter] 后，last_end=12，末尾 "很高兴见到你" 在此切出
     if last_end < len(text):
-        segment = text[last_end:]
+        segment = text[last_end:]  # 切出最后一个标签之后的普通文字段
         ids = tokenizer(segment, add_special_tokens=False).input_ids
         if ids:
             parts.append(ids)
 
+    # 兜底：如果整个文本没有任何标签（parts 为空），直接整体 tokenize
+    # 注意这里用了 return_tensors="pt" 直接返回 tensor，与下面的拼接分支保持一致的输出形状
     if not parts:
         result = tokenizer(text, return_tensors="pt").input_ids
     else:
+        # 将各段 token id 列表按出现顺序展平拼接成一维序列，再包成 (1, seq_len) 的 tensor
         combined = []
         for p in parts:
             combined.extend(p)

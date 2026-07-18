@@ -404,6 +404,10 @@ inputs_embeds: (B, S, H) 连续浮点向量
 
 同一音频位置的 8 层 codebook ID 会分别查表并相加，形成该时间位置的一个 `H` 维复合表示。`H` 是 Transformer 的隐藏维度，不再是 codebook 层数。
 
+完整的数字化示例见 [Token 示例：一条 OmniVoice 输入如何组成完整 Tensor](token示例.md)。该示例把 style、instruct、文本、参考音频、目标 MASK、拼接结果和 `audio_mask` 展开到同一个 `(1,8,S)` 矩阵中。
+
+整数 ID 进入主模型前的向量化过程见 [扩展知识五：OmniVoice 音频 Token 从 `(B,C,S)` 到 Transformer 向量](chapter22_扩展知识五_音频Token到Transformer向量.md)。该章进一步拆解文本分支、音频分支、codebook 层偏移、`nn.Embedding` 查表、`sum(dim=1)` 和最终的 `(B,S,H)` 输出。
+
 ## 19.5 hop_length 决定时间帧率，不等于简单切块大小
 
 `hop_length` 表示相邻两个时间位置在原始采样点上相隔多少。它更准确叫 frame shift（帧移 / 步长），而不是严格意义上的“每帧大小”。

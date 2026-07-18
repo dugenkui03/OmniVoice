@@ -59,6 +59,8 @@ flowchart LR
 | 第 19 章：扩展知识二 | 建立神经音频 codec 与语音 token 基础 | 讲清 codec、codebook、RVQ、hop_length、semantic token、acoustic token 和 OmniVoice 的 audio tokenizer 关系 | 不要写成论文综述，重点服务读懂 codec token 路线和项目里的 `(C=8, T)` |
 | 第 20 章：扩展知识三 | 建立推理、Transformer 前向计算和 OmniVoice 生成源码的连接 | 讲清 inference、forward、self-attention、hidden states、logits、mask-fill、generate / decode 分工 | 不要把 Transformer 等同于完整推理，也不要把 `forward()` 写成只属于训练 |
 | 第 21 章：扩展知识四 | 建立注意力机制、QKV、Transformer block 和 multi-head attention 的直觉 | 讲清 embedding、Transformer block、Q/K/V、attention weights、mask、self-attention、cross-attention、multi-head attention 和 hidden states 的关系 | 不要写成纯公式推导，重点服务读懂 Transformer 主干和 TTS 条件融合 |
+| 第 22 章：扩展知识五 | 建立 OmniVoice 多 codebook token 到 Transformer 输入向量的形状直觉 | 讲清 `(B,C,S)`、`audio_mask`、广播、codebook 层偏移、`nn.Embedding`、`sum(dim=1)` 和 `(B,S,H)` | 不要把主模型的 audio embedding 与 codec quantizer 的 codebook 混为一谈，也不要脱离完整 Tensor 误读维度编号 |
+| 第 23 章：扩展知识六 | 作为常用张量与模型方法的速查手册 | 讲清 `torch.full`、`arange`、索引 / 切片、`unsqueeze` / `squeeze`、`view` / `reshape`、`repeat`、广播、`sum`、`torch.where`、`torch.cat`、`nn.Embedding` / `.weight`、`nn.Linear`、`register_buffer`、`get_input_embeddings`、参数与 buffer 区别 | 不要写成 PyTorch API 全量文档，只收录本书和 OmniVoice 源码实际出现的方法，并标注调用位置 |
 
 ## 写作标准
 
