@@ -107,7 +107,7 @@ class VoiceClonePrompt:
     """
     ref_audio_tokens: torch.Tensor  # 参考音频离散 token, shape = (C=8, T)
     ref_text: str                   # 参考音频对应的文本(可由 Whisper 自动转写)
-    ref_rms: float                  # 参考音频的 RMS, 用来给输出做音量归一
+    ref_rms: float                  # 参考音频响度(RMS 均方根 = sqrt(mean(wav**2))), 用来给输出做音量归一
 
 
 @dataclass
@@ -899,25 +899,27 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         # 把 ref_audio 统一加载/归一化成模型采样率下的单声道波形
         if isinstance(ref_audio, str):
-            # 传的是文件路径: 直接按模型采样率读入
+            # 传的是文件路径: 直接按模型采样率读入。ref_wav 是 (1, T) 的 numpy 数组
             ref_wav = load_audio(ref_audio, self.sampling_rate)
         else:
-            # 传的是 (波形, 采样率) 元组: 手动做格式归一
+            # 传的是 (波形, 采样率) 元组 tuple[torch.Tensor, int]: 手动做格式归一
             waveform, sr = ref_audio
             if isinstance(waveform, torch.Tensor):
                 waveform = waveform.cpu().numpy()  # tensor → numpy
             if waveform.ndim == 1:
                 waveform = waveform[np.newaxis, :]  # 1 维 → (1, T), 补出通道维
             if waveform.shape[0] > 1:
-                # 多声道 → 取均值降为单声道
+                # 多声道 → 沿第 0 轴(通道轴 axis)取平均混为单声道;
+                # np.mean 表示求平均，keepdims=True 保留该轴长度为 1, 使形状从 (C, T) 变成 (1, T)
                 waveform = np.mean(waveform, axis=0, keepdims=True)
             if sr != self.sampling_rate:
                 # 采样率不一致 → 重采样到模型采样率
                 waveform = torchaudio.functional.resample(
-                    torch.from_numpy(waveform),
-                    orig_freq=sr,
-                    new_freq=self.sampling_rate,
-                ).numpy()
+                    torch.from_numpy(waveform),   # numpy 波形 → torch.Tensor(resample 只吃张量)
+                    orig_freq=sr,                 # 原采样率
+                    new_freq=self.sampling_rate,  # 目标采样率(模型要求)
+                ).numpy()                          # 返回 torch.Tensor, 再转回 numpy 接回流水线
+            # 归一完成: ref_wav 是 CPU 上的 numpy 波形, 形状 (1, T), 单声道, 采样率已对齐到 self.sampling_rate
             ref_wav = waveform
 
         # 计算 RMS(均方根, 衡量响度); 过于安静(0<rms<0.1)时放大到 0.1, 避免克隆质量下降。
@@ -930,11 +932,15 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             # Trim long reference audio (>20s) by splitting at the largest silence gap.
             # Skip trimming when ref_text is user-provided, otherwise the
             # trimmed audio will no longer match the full transcript.
-            # 在最大静音间隙处切分, 裁剪过长(>20s)的参考音频。
-            # 若 ref_text 是用户提供的, 则跳过裁剪——否则裁后音频会和完整文本对不上。
+            # 裁剪过长(>trim_threshold 秒)的参考音频: 在 max_duration(默认15s)之前、
+            # 尽量靠后的静音处切一刀, 只保留前面一段, 使切口落在静音里、不从词中间截断。
+            # 仅当 ref_text 为 None(需自动转写)时才裁剪; 若 ref_text 是用户提供的,
+            # 裁剪后音频会和完整文本对不上, 所以跳过。
             if ref_text is None:
                 ref_wav = trim_long_audio(
-                    ref_wav, self.sampling_rate, trim_threshold=20.0
+                    ref_wav,
+                    self.sampling_rate,
+                    trim_threshold=20.0,  # 时长超过该秒数(20s)才触发裁剪, 否则原样返回
                 )
             # 去静音: 收敛中间长静音(>200ms), 并裁掉首尾静音(各保留 100/200ms)
             ref_wav = remove_silence(

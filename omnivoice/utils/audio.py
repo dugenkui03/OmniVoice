@@ -293,31 +293,57 @@ def trim_long_audio(
 
     Returns:
         Trimmed numpy array.
+
+    中文说明:
+        把过长音频在静音间隙处切断, 使时长不超过 max_duration。
+        仅当音频超过 trim_threshold 秒时才裁剪, 尽量切在静音处以免截断词语。
+
+        参数:
+            audio: 形状 (C, T) 的 numpy 数组。
+            sampling_rate: 采样率。
+            max_duration: 裁剪后允许的最大时长(秒)。
+            min_duration: 裁剪后至少保留的时长(秒)。
+            trim_threshold: 只有超过该秒数才裁剪。
+        返回:
+            裁剪后的 numpy 数组。
     """
+    # 总时长(秒) = 采样点数 / 采样率; 未超过阈值则原样返回, 不裁剪
     duration = audio.shape[-1] / sampling_rate
     if duration <= trim_threshold:
         return audio
 
+    # numpy 波形 → pydub AudioSegment, 以便用静音检测工具
     seg = numpy_to_audiosegment(audio, sampling_rate)
+    # 检测所有“非静音”区间 [(start_ms, end_ms), ...]
+    #   min_silence_len=100: 至少 100ms 静音才算一段间隔
+    #   silence_thresh=-40: 低于 -40dB 视为静音
+    #   seek_step=10: 每 10ms 扫描一步
     nonsilent = detect_nonsilent(
         seg, min_silence_len=100, silence_thresh=-40, seek_step=10
     )
+    # 整段几乎全是静音(检测不到非静音) → 无从切分, 原样返回
     if not nonsilent:
         return audio
 
+    # 秒 → 毫秒, 后续 pydub 的下标单位是毫秒
     max_ms = int(max_duration * 1000)
     min_ms = int(min_duration * 1000)
 
+    # 在 max_ms 之前, 找一个尽量靠后的“非静音段起点”作为切点,
+    # 这样切口落在静音间隙里, 不会把一个词从中间截断
     best_split = 0
     for start, end in nonsilent:
         if start > best_split and start <= max_ms:
             best_split = start
+        # 已经越过 max_ms, 后面的段无需再看
         if end > max_ms:
             break
 
+    # 找到的切点太靠前(短于 min_ms) → 直接切到 max_ms(或音频末尾), 保证够长
     if best_split < min_ms:
         best_split = min(max_ms, len(seg))
 
+    # 按切点截取前半段, 再转回 numpy 返回
     trimmed = seg[:best_split]
     return audiosegment_to_numpy(trimmed)
 
