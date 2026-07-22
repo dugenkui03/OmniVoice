@@ -207,13 +207,19 @@ class RuleDurationEstimator:
 
     def estimate_duration(
         self,
-        target_text: str,
-        ref_text: str,
-        ref_duration: float,
-        low_threshold: Optional[float] = 50,
-        boost_strength: float = 3,
+        target_text: str,  # 目标文本: 要估计说完它需要多长时间
+        ref_text: str,  # 参考文本: 和 ref_duration 配对, 用来测"这个人的语速"
+        ref_duration: float,  # 参考文本的实际时长, 与 ref_text 一起定出语速基准，这个单位可以是 音频帧数量也可以是其他，反正结果时长单位跟这个一致或者说是相对关系
+        low_threshold: Optional[float] = 50,  # 短时长下限: 估值低于它就认为不可靠, 做提升修正; None=关闭
+        boost_strength: float = 3,  # 短时长提升强度: 越大对小估值提升越猛; 1=不提升(线性), 2≈开方
     ) -> float:
-        """
+        """估计"说完 target_text 需要多长时间"(单位与 ref_duration 一致)。
+
+        基本思路:
+          先用参考音频和参考文本 (ref_text + ref_duration) 估出这个说话人的语速,
+          再按目标文本推算需要多少秒。不同文字每秒能说多少"字符量"是不一样的,
+          代码用每字符的相对权重 (如汉字≈3、拉丁字母=1、数字≈3.5, 见 self.weights)
+          做这种换算, 因此中英文混排也能统一折算。估值过短时再做一次非线性抬高。
 
         Args:
             target_text (str): The text for which we want to estimate the duration.
@@ -231,17 +237,23 @@ class RuleDurationEstimator:
             float: The estimated duration for the target_text based
                 on the ref_text and ref_duration.
         """
+        # 参考时长非正或参考文本为空 → 无法定语速, 返回 0
         if ref_duration <= 0 or not ref_text:
             return 0.0
 
+        # 参考文本的发音工作量; 为 0 (如全是被忽略的字符) 也无法定语速
         ref_weight = self.calculate_total_weight(ref_text)
         if ref_weight == 0:
             return 0.0
 
+        # 语速 = 参考工作量 / 参考时长 (每单位时间能说多少工作量)
         speed_factor = ref_weight / ref_duration
+        # 目标文本的发音工作量
         target_weight = self.calculate_total_weight(target_text)
 
+        # 目标时长 = 目标工作量 / 语速
         estimated_duration = target_weight / speed_factor
+        # 估值过短时做幂曲线提升: 用 alpha=1/boost_strength 把小值抬高, 缓解短文本被低估
         if low_threshold is not None and estimated_duration < low_threshold:
             alpha = 1.0 / boost_strength
             return low_threshold * (estimated_duration / low_threshold) ** alpha

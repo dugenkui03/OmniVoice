@@ -24,6 +24,8 @@ translation/validation utilities between English and Chinese. Used by
 
 import re
 
+# 匹配单个中文字符: [\u4e00-\u9fff] 是 CJK 统一表意文字(常用汉字)的 Unicode 区间。
+# 用 _ZH_RE.search(text) 判断文本里是否出现中文, 从而决定风格指令用中文还是英文形式。
 _ZH_RE = re.compile(r'[\u4e00-\u9fff]')
 
 # Category = set of {english: chinese, ...} items that are mutually exclusive.

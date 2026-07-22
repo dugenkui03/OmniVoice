@@ -150,6 +150,22 @@ ref_audio_tokens.unsqueeze(0)  # (C,T) -> (1,C,T)，补 batch 维
 ...audio_codes.squeeze(0)
 ```
 
+注意 `unsqueeze` 和 `squeeze` 并不完全对称：`unsqueeze(n)` 一定会插入一个长度为 1 的维度；而 `squeeze(n)` **只在第 n 维长度为 1 时才删除，否则原样返回、不报错**：
+
+```text
+x.shape = (1, 8, 250)
+
+x.squeeze(0) → (8, 250)      # 第 0 维长度是 1 → 删掉
+x.squeeze(1) → (1, 8, 250)   # 第 1 维长度是 8 ≠ 1 → 不删，原样返回（不报错）
+x.squeeze(2) → (1, 8, 250)   # 第 2 维长度是 250 ≠ 1 → 不删
+```
+
+几个易踩的点：
+
+- 不带参数的 `squeeze()` 会删掉**所有**长度为 1 的维度（如 `(1,8,1,250) → (8,250)`），不够精确；因此代码里常显式写 `squeeze(0)` 只删 batch 维，更可控。
+- 维度**越界**才会报错，例如对 3 维张量调用 `x.squeeze(5)` 会 `IndexError`。
+- NumPy 的 `np.squeeze(x, axis=1)` 若该轴长度不是 1 **会抛 ValueError**，与 torch 的"静默不删"不同；`np.squeeze(x)`（不带 axis）则和 torch 一样删所有 1 维。
+
 ### `view` / `reshape`
 
 在元素总数不变的前提下重新排列形状。`-1` 表示该位置由其余维度自动推断。

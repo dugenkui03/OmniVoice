@@ -205,15 +205,15 @@ def chunk_text_punctuation(
 
 
 def add_punctuation(text: str):
-    """Add punctuation if there is not in the end of text"""
-    text = text.strip()
+    """Add punctuation(标点符号) if there is not in the end of text"""
+    text = text.strip() # 去首尾空白
 
-    if not text:
+    if not text: # 如果文本为空，直接返回
         return text
 
-    if text[-1] not in END_PUNCTUATION:
-        is_chinese = any("\u4e00" <= char <= "\u9fff" for char in text)
+    if text[-1] not in END_PUNCTUATION: # 如果文本最后一个字符不是标点符号，则添加标点符号
+        is_chinese = any("\u4e00" <= char <= "\u9fff" for char in text) # 判断文本是否为中文
 
-        text += "。" if is_chinese else "."
+        text += "。" if is_chinese else "." # 如果文本为中文，则添加句号；否则添加点号
 
     return text

@@ -45,7 +45,7 @@ import os
 import re
 from dataclasses import dataclass, fields
 from functools import partial
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -126,7 +126,7 @@ class OmniVoiceGenerationConfig:
     preprocess_prompt: bool = True      # 是否对参考音频做去静音/裁剪等预处理
     postprocess_output: bool = True     # 是否对输出做去静音/淡入淡出
     audio_chunk_duration: float = 15.0  # 长文本分块时单段目标时长(秒)
-    audio_chunk_threshold: float = 30.0 # 估计音频超过该阈值(秒)才走分块生成
+    audio_chunk_threshold: float = 30.0 # 区分长短音频的阈值(秒)
 
     @classmethod
     def from_dict(cls, kwargs_dict):
@@ -154,8 +154,11 @@ class GenerationTask:
     ref_rms: List[Optional[float]]  # 参考音频响度 RMS，用于生成结果的音量归一
     speed: Optional[List[float]] = None  # 每条样本的时长缩放比例，长文本分块时使用
 
-    def get_indices(self, config: OmniVoiceGenerationConfig, frame_rate: int):
+    def get_indices(
+        self, config: OmniVoiceGenerationConfig, frame_rate: int
+    ) -> Tuple[List[int], List[int]]:
         """按预计输出长度，把 batch 样本划分为短音频和长音频两组。
+        区分长短音频的阈值在 OmniVoiceGenerationConfig.audio_chunk_threshold
 
         Args:
             config: OmniVoice 生成参数。其中 ``audio_chunk_threshold`` 表示
@@ -182,7 +185,7 @@ class GenerationTask:
         return short_idx, long_idx
 
     def slice_task(self, indices: List[int]):
-        """根据样本下标提取子任务，并保持所有 batch 字段一一对应。
+        """根据样本下标提取子任务集合，并保持所有 batch 字段一一对应。
 
         例如 ``indices=[0, 2]`` 会从当前任务中取出第 0、2 条样本，
         生成一个 ``batch_size=2`` 的新 ``GenerationTask``。该方法用于把
@@ -534,12 +537,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             # 本来就是 (T,) 则无长度为1的维度可删, 原样返回。
             # (若为真正多声道如 (2, T), 长度2的维度不会被删——但上游已保证是单声道)
             waveform = np.squeeze(waveform)  # (1, T) or (T,) → (T,) 压成一维
-            # pipeline 接受 {"array": 一维波形, "sampling_rate": 采样率} 形式的输入
+            # pipeline 接受 {"array": 一维波形, "sampling_rate": 采样率} 形式的输入，这个是字典dict类型
             audio_input = {
                 "array": waveform,
                 "sampling_rate": sr,
             }
-            # 调用 ASR pipeline 得到 {"text": ...}, 取文本并去首尾空白
+            # 调用 ASR pipeline 得到 {"text": ...}, 取文本并去首尾空白。
+            # 这里传入的是 dict(字段类型参数): {"array": 波形, "sampling_rate": 采样率};
+            # _asr_pipe() 支持两种输入: ① str 音频文件路径; ② 上面这种含波形+采样率的 dict。
             return self._asr_pipe(audio_input)["text"].strip()
 
     def _prepare_embed_inputs(
@@ -808,8 +813,21 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         self.eval()
 
-        # Step 1: 把所有输入归一化成 batch, 解析 lang/instruct, 必要时跑参考音频的
-        # encode + Whisper 转写, 同时用 RuleDurationEstimator 估计每条样本的目标 token 数.
+        # Step 1: 输入清洗 + 估时长。把五花八门的用户输入(文本/语言/参考音频/instruct/
+        #   speed/duration)统一成按 batch 对齐的 GenerationTask, 期间会做文本归一化、
+        #   语言/风格解析、参考音频 encode + 必要时 ASR 转写, 【并估计每条的目标tts的音频时长/token 帧数】。
+        # full_task 类型如下：
+        # GenerationTask(
+        #     batch_size=batch_size,
+        #     texts=text_list,                       # 待合成文本
+        #     target_lens=num_target_tokens_list,    # 每条要生成多少帧 token (决定输出时长)
+        #     langs=language_list,                   # 解析后的语言码
+        #     instructs=instruct_list,               # 规范化后的风格指令
+        #     ref_texts=ref_text_list,               # 参考文本 (无则 None)
+        #     ref_audio_tokens=ref_audio_tokens_list,  # 参考音频 token (无则 None)
+        #     ref_rms=ref_rms_list,                  # 参考音频 RMS, 用于输出音量归一
+        #     speed=speed_list,                      # 每条的缩放比例 (供分块按比例缩放)
+        # )
         full_task = self._preprocess_all(
             text=text,
             language=language,
@@ -823,19 +841,24 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         )
 
         # Step 2: 按估计长度切分: 短句直接 batch 解码, 长句改走分段解码以控制显存
+        # 区分长短音频的阈值在 OmniVoiceGenerationConfig.audio_chunk_threshold
         short_idx, long_idx = full_task.get_indices(
             gen_config, self.audio_tokenizer.config.frame_rate
         )
-
+        # 结果数组长度
         results = [None] * full_task.batch_size
 
         if short_idx:
+            # 获取短音频子任务集合
             short_task = full_task.slice_task(short_idx)
+            # _generate_iterative 是推理生成的核心函数，负责按帧迭代解码音频 token，
             short_results = self._generate_iterative(short_task, gen_config)
+            # zip()：把多个序列"按位置配对"一起遍历
             for idx, res in zip(short_idx, short_results):
-                results[idx] = res
+                results[idx] = res # 把短音频子任务集合的生成结果保存到 results 数组中
 
         if long_idx:
+            # 获取长音频子任务集合
             long_task = full_task.slice_task(long_idx)
             long_results = self._generate_chunked(long_task, gen_config)
             for idx, res in zip(long_idx, long_results):
@@ -977,27 +1000,36 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             ref_text = self.transcribe((ref_wav, self.sampling_rate))
             logger.debug("Auto-transcribed ref_text: %s", ref_text)
 
-        # hop_length 是 audio tokenizer 每前进一步跨过的采样点数。
-        # 例如 24kHz 下 hop_length=960 约等于 40ms, 即 1 秒约 25 个 token 帧。
-        # 参考音频长度要对齐 hop_length, 否则 encode 出来的最后一帧会不完整;
-        # 这里把尾部不足一帧的采样点裁掉, 保证后续 audio tokens 的时间帧整齐。
+        # 对齐 hop_length: 把尾部不足一帧的采样点裁掉, 保证 audio tokens 的时间帧整齐
+        # (否则 encode 出来的最后一帧不完整)。
+        # 采样点 → 时间帧 → codebook ID (24kHz, hop_length=960):
+        #   960 个采样点 → 1 个时间帧 → 8 个 codebook ID
+        #   1 秒 = 24000 采样点 ≈ 25 帧 ≈ 25 × 8 = 200 个 ID
         chunk_size = self.audio_tokenizer.config.hop_length
-        clip_size = int(ref_wav.shape[-1] % chunk_size)
-        ref_wav = ref_wav[:, :-clip_size] if clip_size > 0 else ref_wav
+        clip_size = int(ref_wav.shape[-1] % chunk_size)  # clip_size 是被裁掉的尾部采样点数 / 取余: 尾部凑不满一帧的采样点数(要裁掉)
+        ref_wav = ref_wav[:, :-clip_size] if clip_size > 0 else ref_wav # 最终保留的采样点数 = 总采样点数 - 被裁掉的采样点数
         # numpy → torch at tokenizer boundary
         # 在进 tokenizer 前把 numpy 波形转成 torch 张量, 并搬到 tokenizer 所在设备
         ref_wav_tensor = torch.from_numpy(ref_wav).to(self.audio_tokenizer.device)
         # 关键: 参考音频通过 HiggsAudioV2 tokenizer 编码为 (C=8, T) 的离散 token,
         # 后续整个推理过程都在 token 空间里进行, 不再接触波形.
-        ref_audio_tokens = self.audio_tokenizer.encode(
-            ref_wav_tensor.unsqueeze(0),
-        ).audio_codes.squeeze(
-            0
-        )  # (C, T)
+        # 注意不是“1 个采样点 → 8 个 ID”: encoder 先把约 hop_length 个采样点下采样成
+        # 1 个 latent 向量, 再由 RVQ 8 层把这一个向量量化成 8 个 ID。
+        #   - hop_length 定义在 tokenizer 的 config: self.audio_tokenizer.config.hop_length
+        #   - “采样点 → codebook”的转换就发生在这里的 encode(), 返回 audio_codes (C, T)
+
+        # ① 补 batch 维: (1, T_samples) -> (1, 1, T_samples), encode 期望带 batch 的输入
+        batched_wav = ref_wav_tensor.unsqueeze(0)
+        # ② 编码: 波形 -> tokenizer 输出对象(含 audio_codes 等字段)；然后取出离散 token: audio_codes 形状为 (1, C, T)(带 batch)
+        # 重点：这一步就是 采样 -> codebook token 的过程
+        encoded = self.audio_tokenizer.encode(batched_wav)
+        batched_codes = encoded.audio_codes
+        # 3️⃣ 去掉 batch 维: (1, C, T) -> (C, T), 得到这条参考音频的 8 层 codebook token
+        ref_audio_tokens = batched_codes.squeeze(0)  # (C, T) squeeze(n)：只删长度为 1 的维度，否则静默不删、不报错
 
         # 预处理开启时, 给参考文本末尾补标点 (有助于模型理解句子边界)
         if preprocess_prompt:
-            ref_text = add_punctuation(ref_text)
+            ref_text = add_punctuation(ref_text) # 给参考文本末尾补标点 (有助于模型理解句子边界)
 
         # 打包成可复用的提示: token + 文本 + 响度
         return VoiceClonePrompt(
@@ -1197,27 +1229,23 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
     def _preprocess_all(
         self,
-        text: Union[str, list[str]],
-        language: Union[str, list[str], None] = None,
-        ref_text: Union[str, list[str], None] = None,
+        text: Union[str, list[str]],  # 待合成文本; 单条 str 或一批 list[str], 决定 batch_size
+        language: Union[str, list[str], None] = None,  # 语言 "English"/"en" 等; None=语言无关模式
+        ref_text: Union[str, list[str], None] = None,  # 参考音频对应文本(voice clone); None 时自动 ASR 转写
         ref_audio: Union[
             str,
             list[str],
             tuple[torch.Tensor, int],
             list[tuple[torch.Tensor, int]],
             None,
-        ] = None,
+        ] = None,  # 参考音频(voice clone): 文件路径 str 或 (波形, 采样率) 元组; None=无参考
         voice_clone_prompt: Union[
             VoiceClonePrompt, list[VoiceClonePrompt], None
-        ] = None,
-        instruct: Union[str, list[str], None] = None,
-        # 重要
-        # 是否对声音克隆的参考音频/参考文本做预处理 (仅在传 ref_audio 时生效):
-        #   True  -> 去除参考音频长静音、超长(>20s)按最大静音处裁剪、参考文本末尾补标点;
-        #   False -> 原样使用参考音频和文本 (如 ref_text 由用户精确提供、或评测复现时)。
-        preprocess_prompt: bool = True,
-        speed: Union[float, list[Optional[float]], None] = None,
-        duration: Union[float, list[Optional[float]], None] = None,
+        ] = None,  # 预构造好的可复用参考提示; 若给出则优先, ref_text/ref_audio 被忽略
+        instruct: Union[str, list[str], None] = None,  # voice design 风格指令 "male, british accent" 等; None=不用
+        preprocess_prompt: bool = True,  # 是否对参考音频做裁剪/去静音并给 ref_text 补标点
+        speed: Union[float, list[Optional[float]], None] = None,  # 语速缩放; >1 更快 <1 更慢; None=模型默认
+        duration: Union[float, list[Optional[float]], None] = None,  # 固定输出时长(秒); 覆盖 speed; None=按文本估计
     ) -> GenerationTask:
         """把五花八门的用户输入整理成统一的 GenerationTask, 供后续解码直接消费.
 
@@ -1246,17 +1274,17 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         batch_size = len(text_list)
 
         # ===== ② 解析语言与风格指令 =====
-        # language: "English"/"en" 等 → 模型内部语言码 (见 lang_map)
+        # 确认输入的语言是否为列表，如果是列表，则确保列表长度与 batch_size 一致；否则广播成列表
         language_list = self._ensure_list(language, batch_size)
-        language_list = [_resolve_language(lang) for lang in language_list] # 把用户传入的 language 规范化成模型内部使用的语言代码 (如 "zh")
-        # instruct: voice design 的 "male, british accent" 等 → 校验/规范化;
-        # 文本含中文且未指定口音时, 指令会统一成中文形式 (use_zh)
+        # 把用户传入的 language 规范化成模型内部使用的语言代码 (如 "zh")
+        language_list = [_resolve_language(lang) for lang in language_list]
+        # instruct: voice design 风格指令广播成 batch (下面逐条校验/规范化)
         instruct_list = self._ensure_list(instruct, batch_size)
         for i, s in enumerate(instruct_list):
             if s is None:
                 continue
-            use_zh = bool(text_list[i] and _ZH_RE.search(text_list[i]))
-            instruct_list[i] = _resolve_instruct(s, use_zh=use_zh)
+            use_zh = bool(text_list[i] and _ZH_RE.search(text_list[i])) # 判断文本是否【包含】中文
+            instruct_list[i] = _resolve_instruct(s, use_zh=use_zh) # 规范化风格指令
 
         # ===== ③ 处理参考音频 (voice clone) =====
         # voice_clone_prompt 与 ref_text/ref_audio 二者都给时, 以前者为准
@@ -1268,14 +1296,15 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 "ref_text/ref_audio will be ignored."
             )
         if voice_clone_prompt is None and ref_audio is not None:
-            # 没有现成的 voice_clone_prompt 时, 从 ref_audio 现场构造:
-            # 内部会把参考音频 encode 成 token; 若未给 ref_text 则用 ASR 自动转写.
+            # 如果 voice_clone_prompt 为空 并且 ref_audio 不为空，
+            #   则从 ref_audio 构造 voice_clone_prompt
             ref_text_list = self._ensure_list(ref_text, batch_size, auto_repeat=False)
             ref_audio_list = self._ensure_list(ref_audio, batch_size, auto_repeat=False)
 
             voice_clone_prompt = []
             for i in range(len(ref_text_list)):
-                voice_clone_prompt.append(
+                voice_clone_prompt.append( # 重点
+                    # 创建 VoiceClonePrompt，这个对象是输入缓存、包括音频 tokenize 之后的 codebook token
                     self.create_voice_clone_prompt(
                         ref_audio=ref_audio_list[i],
                         ref_text=ref_text_list[i],
@@ -1283,9 +1312,11 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                     )
                 )
 
-        # 把 voice clone 提示拆成三条平行列表; 没有参考音频时全部填 None (auto voice / voice design)
+        # 把 voice clone 提示拆成三条平行列表; 没有参考音频时全部填 None (auto voice / voice design)。
+        # 拆成 token / text / rms 三条独立列表, 是为了让下游按下标 i 直接取用, 无需再感知 VoiceClonePrompt。
         voice_clone_prompt_list = self._ensure_list(voice_clone_prompt, batch_size)
         if voice_clone_prompt_list[0] is not None:
+            # 将 voice_clone_prompt_list 中的元素拆解成3个list
             ref_text_list = [vc.ref_text for vc in voice_clone_prompt_list]
             ref_audio_tokens_list = [
                 vc.ref_audio_tokens for vc in voice_clone_prompt_list
@@ -1299,14 +1330,17 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # ===== ④ 归一化 speed / duration 为"每条样本一个值"的列表 (可能含 None) =====
         if speed is not None:
             if isinstance(speed, (int, float)):
+                 # [float(speed)] 先构造单元素列表 [x]，再 * batch_size 复制 batch_size 份 → [x,x,x ...batch_size个]（把一个语速套到全体）
                 user_speed = [float(speed)] * batch_size
             else:
+                # 如果本来就是list，则直接转换成list
                 user_speed = list(speed)
         else:
             user_speed = None
 
         if duration is not None:
             if isinstance(duration, (int, float)):
+                # [float(duration)] 先构造单元素列表 [x]，再 * batch_size 复制 batch_size 份 → [x,x,x ...batch_size个]（把一个时长套到全体）
                 durations = [float(duration)] * batch_size
             else:
                 durations = list(duration)
@@ -1314,40 +1348,42 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             durations = None
 
         # ===== ⑤ 估计每条样本的目标 token 数 (掩码扩散必须先知道铺多少帧) =====
-        # 先用 RuleDurationEstimator 按文本估出基础帧数 (见 _estimate_target_tokens).
-        num_target_tokens_list = []
+        num_target_tokens_list = [] # 重要，保存每个 tts 文本预估的时长
         for i in range(batch_size):
-            # 指定了 duration[i] 时, 估计阶段先用 speed=1.0 拿到原始估值,
-            # 真正的帧数稍后由 duration 覆盖 (见下方).
             has_dur = durations is not None and durations[i] is not None
+            # 如果指定了 duration[i]，则设置 speed 为 1.0；这里只是估计阶段先用 speed=1.0 拿到一个"原始估值"，真正的帧数稍后由 duration 直接覆盖（target_tokens = duration × frame_rate）
+            # 否则使用 user_speed[i] 作为缩放比例
             item_speed = 1.0 if has_dur else (user_speed[i] if user_speed else 1.0)
+            # 预估 tts - text 的时长、参考音频讲的快也会影响预估的时长，并且按照 speed 对结果时长进行缩放。另外，即使参考音频讲的快，speed也是在原参考音频基础之上进行缩放
             est = self._estimate_target_tokens(
                 text_list[i],
                 ref_text_list[i],
-                ref_audio_tokens_list[i].size(-1)
+                ref_audio_tokens_list[i].size(-1) # ref_audio_tokens 形状为 (C=8, T), .size(-1) 取最后一维 = 【参考音频的时间帧数 T】
                 if ref_audio_tokens_list[i] is not None
                 else None,
                 speed=item_speed,
             )
             num_target_tokens_list.append(est)
 
-        # duration 覆盖: 若用户指定了固定时长, 直接把帧数设为 duration × frame_rate,
-        # 并反算一个 speed 比例 (est/target), 供长文本分块时按比例缩放每段长度.
+        # duration 覆盖: 若用户指定了固定时长, 直接把帧数设为 duration × frame_rate
+        # frame_rate 是指每秒多少帧，这个在音频 tokenizer 的 config 中定义
         speed_list: Optional[List[float]] = None
         if durations is not None:
+            # 每秒钟有多少音频帧
             frame_rate = self.audio_tokenizer.config.frame_rate
             speed_list = []
             for i in range(batch_size):
                 if durations[i] is not None:
                     target_tokens = max(1, int(durations[i] * frame_rate))
                     est = num_target_tokens_list[i]
+                    # 反算缩放比例 est/target: >1 表示要"压缩"(说快些), <1 表示"拉长",
                     speed_list.append(est / target_tokens if target_tokens > 0 else 1.0)
                     num_target_tokens_list[i] = target_tokens
                 else:
                     s = user_speed[i] if user_speed else None
                     speed_list.append(s if s is not None else 1.0)
         elif user_speed is not None:
-            # 没给 duration 但给了 speed: 直接把 speed 作为缩放比例传下去
+            # 遍历 user_speed 列表，如果 s 不为 None，则将 s 添加到 speed_list 中，否则添加 1.0
             speed_list = [s if s is not None else 1.0 for s in user_speed]
 
         # ===== 返回: 按 batch 对齐的任务包 (每个字段都是长度 = batch_size 的平行列表) =====
@@ -1370,12 +1406,13 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             ref_text = "Nice to meet you."
             num_ref_audio_tokens = 25
 
+        # 根据 ref_text, num_ref_audio_tokens 预估 text 的时长，时长单位同 num_ref_audio_tokens，基本思路见代码注释
         est = self.duration_estimator.estimate_duration(
             text, ref_text, num_ref_audio_tokens
         )
         if speed > 0 and speed != 1.0:
-            est = est / speed
-        return max(1, int(est))
+            est = est / speed # 速度越快目标时长越短 - 这个是完全按照时间倍数来的啊！
+        return max(1, int(est)) # 至少1帧？这个好像也不太行，1帧才40ms，也太短了
 
     def _ensure_list(
         self, x: Union[Any, List[Any]], batch_size: int, auto_repeat: bool = True
@@ -1416,7 +1453,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         lang: Optional[str] = None,
         instruct: Optional[str] = None,
         denoise: bool = True,
-    ):
+    ) -> Dict[str, torch.Tensor]:
         """Prepare input_ids and audio masks for inference.
         Args:
             text: Target text to generate.
@@ -1433,6 +1470,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             lang: Optional language ID.
             instruct: Optional style instruction for voice design.
             denoise: Whether to include the <|denoise|> token.
+
+        Returns:
+            dict[str, torch.Tensor]: 单条样本的模型输入, 含两个键:
+              - ``input_ids``: (1, C, S) 混合 token 序列,
+                内容顺序为 [style][text][可选 ref audio][target MASK]。
+              - ``audio_mask``: (1, S) 布尔标记, False=style/text 位置(走文本 embedding),
+                True=ref audio/target 位置(走 8 层 codebook 音频 embedding)。
+                注意它是"位置类型标记", 不是 attention_mask, 也不是值为 1024 的 target MASK token。
         """
 
         # 1) Style 段: 可选 <|denoise|> + 语言标签 + Voice Design 指令标签
@@ -1537,18 +1582,32 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         }
 
     def _generate_iterative(
-        self, task: GenerationTask, gen_config: OmniVoiceGenerationConfig
+        self,
+        task: GenerationTask,
+        gen_config: OmniVoiceGenerationConfig
     ) -> List[torch.Tensor]:
         """N-step iterative unmasked decoding.
-
         Args:
             task: A :class:`GenerationTask` containing batch texts, target
                 lengths, languages, instructions, and optional reference data.
             gen_config: A :class:`OmniVoiceGenerationConfig` controlling
                 decoding steps, guidance, temperatures, etc.
         Returns:
-            List of generated audio token tensors of shape (C, T) (one per
-            input text).
+            List of generated audio token tensors of shape (C, T) (one per input text).
+
+        中文说明:
+            掩码扩散(MaskGIT 式)迭代解码: 从全 MASK 的 (C, T) 目标出发, 分 num_step
+            轮逐步把 MASK 填成真实 codec token, 每轮只填一批"最有把握"的位置。
+            基本逻辑分 6 步:
+              step 1: 为每条样本构造推理输入(style + text + 可选 ref + target 全 MASK)。
+              step 2: 拼成 batch_size=2B 的 batch —— 前 B 条为"条件"(cond, 含 style/text/ref),
+                      后 B 条为"无条件"(uncond, 只保留 target 区域); 一次 forward 同时得
+                      两路 logits, 供 Classifier-Free Guidance(CFG) 融合。
+              step 3: 初始化 tokens(当前已解出的 target 状态)为全 MASK。
+              step 4: 计算时间步 timesteps 与每步要 unmask 的 token 数 schedules。
+              step 5: 迭代主循环(num_step 轮), 每轮: 前向 → CFG 融合打分 → 层惩罚 + Gumbel
+                      噪声选位置 → 屏蔽已填位置 → top-k 填入预测 token → 回写上下文。
+              step 6: 按各自 target_lens 裁掉 padding, 返回每条 (C, T)。
         """
 
         B = task.batch_size
@@ -1564,10 +1623,13 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 task.target_lens[i],
             )
 
-        # 为每条样本单独构造输入 (长度可能不同, 后面 pad 到 max_c_len)
+        # ===== step 1: 为每条样本构造推理输入 =====
+        # 每条得到 {input_ids: (1,C,S), audio_mask: (1,S)}:
+        # 【style】 + 【text】 + 【可选 ref 音频】 + 【target 全 MASK 段】
+        # 各条长度可能不同(文本/参考不同), 后面统一 pad 到 max_c_len。
         inputs_list = [
             self._prepare_inference_inputs(
-                task.texts[i],
+                task.texts[i],  # target text；ref_text 由下一参数传入并在函数内部拼接
                 task.target_lens[i],
                 task.ref_texts[i],
                 task.ref_audio_tokens[i],
@@ -1575,21 +1637,22 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 task.instructs[i],
                 gen_config.denoise,
             )
-            for i in range(B)
+            for i in range(B) # NOTE 这里
         ]
 
+        # ===== step 2: 拼成 batch_size=2B 的 batch (cond + uncond, 供 CFG) =====
+        # c_len 是 每条 TTS 输入的 input_ids 张量的序列长度（S）组成的列表，size(2)是指获取(1, C, S)多维数组的第二维(从0开始)的size
         c_lens = [inp["input_ids"].size(2) for inp in inputs_list]
+        # max_c_len 是 所有 TTS 输入的 input_ids 张量的序列长度（S）中的最大值
         max_c_len = max(c_lens)
-        pad_id = self.config.audio_mask_id  # 用 MASK id 当 pad, 走音频 embedding 也不会污染上下文
 
-        # batch_size = 2B 的关键: 前 B 是 "条件输入" (含 style/text/ref),
-        # 后 B 是 "无条件输入" (只保留 target 区域), 用于 Classifier-Free Guidance.
-        # 这样一次 forward 同时拿到 cond / uncond 两路 logits.
+        # pad 填充；mask 掩盖。使用 audio_mask_id 填充
+        pad_id = self.config.audio_mask_id
         batch_input_ids = torch.full(
-            (2 * B, self.config.num_audio_codebook, max_c_len),
-            pad_id,
-            dtype=torch.long,
-            device=self.device,
+            (2 * B, self.config.num_audio_codebook, max_c_len), # size: 形状 (2B, C, max_c_len)
+            pad_id,  # fill_value: 用 MASK id 填满
+            dtype=torch.long, # 整数 token ID
+            device=self.device,  # 放到模型所在设备
         )
         batch_audio_mask = torch.zeros(
             (2 * B, max_c_len), dtype=torch.bool, device=self.device
@@ -1598,6 +1661,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             (2 * B, 1, max_c_len, max_c_len), dtype=torch.bool, device=self.device
         )
 
+        # 逐条把 cond / uncond 两份输入填进 2B batch 的对应行:
+        #   第 i 行  = cond (完整序列, 长度 c_len)
+        #   第 B+i 行 = uncond (仅 target 段, 长度 u_len = target_lens[i])
         for i, inp in enumerate(inputs_list):
             c_len, u_len = c_lens[i], task.target_lens[i]
 
@@ -1616,7 +1682,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 pad_diag = torch.arange(u_len, max_c_len, device=self.device)
                 batch_attention_mask[B + i, :, pad_diag, pad_diag] = True
 
-        # tokens 是 "当前已解出的 target token 状态", 一开始全是 MASK
+        # ===== step 3: 初始化 target 状态为全 MASK =====
+        # tokens 是 "当前已解出的 target token 状态" (B, C, T), 一开始全是 MASK,
+        # 迭代过程中被逐步填成真实 codec token; 它是本函数最终要产出的东西。
         tokens = torch.full(
             (B, self.config.num_audio_codebook, max(task.target_lens)),
             self.config.audio_mask_id,
@@ -1624,6 +1692,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             device=self.device,
         )
 
+        # ===== step 4: 计算时间步与每步 unmask 数量 (schedules) =====
         # 生成 num_step 个时间步, t_shift < 1 时偏向先解早期(噪声大)的步
         timesteps = _get_time_steps(
             t_start=0.0,
@@ -1651,63 +1720,71 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 rem -= int(num)
             schedules.append(sched)
 
-        # 层惩罚向量, 用于在选位置时让靠前 codebook 优先被解 (粗→细)
+        # 层惩罚向量 (0..C-1), 用于在选位置时让靠前 codebook 优先被解 (粗→细)
         layer_ids = torch.arange(
             self.config.num_audio_codebook, device=self.device
         ).view(1, -1, 1)
 
-        # ============== 迭代式 mask-fill 主循环 ==============
+        # ===== step 5: 迭代式 mask-fill 主循环 (共 num_step 轮) =====
+        # 每轮: 前向 → 取 target 区 logits → CFG 融合 → 层惩罚+Gumbel 打分 →
+        #       屏蔽已填位置 → top-k 选位置填入 → 回写上下文, 供下一轮参考。
         for step in range(gen_config.num_step):
-            # 一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]
+            # (5.1) 一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]
+            #       调用 self(...) 即触发 forward(), 内部走 Transformer + audio_heads。
             batch_logits = self(
                 input_ids=batch_input_ids,
                 audio_mask=batch_audio_mask,
                 attention_mask=batch_attention_mask,
             ).logits.to(torch.float32)
 
+            # 逐条样本处理: k = 本轮该样本要新填多少个 token (来自 schedules)
             for i in range(B):
                 k = schedules[i][step]
                 if k <= 0:
-                    continue
+                    continue  # 本轮不给这条填 (调度分配为 0), 跳过
 
                 c_len, t_len = c_lens[i], task.target_lens[i]
 
-                # 取出 "target 区域" 的 logits:
-                #   cond:    序列尾部 t_len 个位置
-                #   uncond:  序列头部 t_len 个位置 (uncond 输入没拼 style/text)
+                # (5.2) 取出 "target 区域" 的 logits:
+                #   cond:    序列尾部 t_len 个位置 (target 段被拼在 style/text/ref 之后)
+                #   uncond:  序列头部 t_len 个位置 (uncond 输入没拼 style/text, target 在最前)
                 c_logits = batch_logits[i : i + 1, :, c_len - t_len : c_len, :]
                 u_logits = batch_logits[B + i : B + i + 1, :, :t_len, :]
 
-                # 做 CFG 融合, 选出预测 token id 与对应的 confidence score
+                # (5.3) CFG 融合两路 logits, 得到每个位置的预测 token id 和置信度 score
+                #       (score 越高表示模型对该位置的预测越有把握)
                 pred_tokens, scores = self._predict_tokens_with_scoring(
                     c_logits, u_logits, gen_config
                 )
 
-                # 层惩罚: codebook 越靠后, 分数越低, 越晚被选
+                # (5.4) 层惩罚: codebook 越靠后分数越低, 让靠前(粗)层优先被选, 形成粗→细
                 scores = scores - (layer_ids * gen_config.layer_penalty_factor)
 
-                # 位置温度: 给 score 加 Gumbel 噪声, 引入位置选择的随机性
+                # (5.5) 位置温度: 给 score 加 Gumbel 噪声, 引入位置选择的随机性(非纯贪心)
                 if gen_config.position_temperature > 0.0:
                     scores = _gumbel_sample(scores, gen_config.position_temperature)
 
-                # 已经填过的位置不能再被选, 设为 -inf
+                # (5.6) 已经填过的位置不能再被选, 把它们的分数设为 -inf 排除
                 sample_tokens = tokens[i : i + 1, :, :t_len]
                 scores.masked_fill_(
                     sample_tokens != self.config.audio_mask_id, -float("inf")
                 )
 
-                # 在 (C × t_len) 个 mask 位置里取 top-k 个填上预测值
+                # (5.7) 在 (C × t_len) 个位置里按分数取 top-k, 只把这 k 个位置填上预测 token
+                #       (其余位置保持 MASK, 留给后续轮次)
                 _, topk_idx = torch.topk(scores.flatten(), k)
                 flat_tokens = sample_tokens.flatten()
                 flat_tokens[topk_idx] = pred_tokens.flatten()[topk_idx]
                 sample_tokens.copy_(flat_tokens.view_as(sample_tokens))
 
-                # 把新填的 token 同步回 cond / uncond 两份输入, 作为下一步的上下文
+                # (5.8) 把新填的 token 回写: tokens(最终结果) + cond/uncond 两份输入,
+                #       让已确定的 token 成为下一轮预测的上下文。
                 tokens[i : i + 1, :, :t_len] = sample_tokens
                 batch_input_ids[i : i + 1, :, c_len - t_len : c_len] = sample_tokens
                 batch_input_ids[B + i : B + i + 1, :, :t_len] = sample_tokens
 
-        # 按各自的 target_lens 裁掉 padding 区域
+        # ===== step 6: 裁掉 padding, 返回每条 (C, T) =====
+        # tokens 是按 max(target_lens) 铺的, 每条按自己的 target_lens[i] 截取有效帧。
         return [tokens[i, :, : task.target_lens[i]] for i in range(B)]
 
     def _predict_tokens_with_scoring(self, c_logits, u_logits, gen_config):
@@ -1832,6 +1909,16 @@ def _resolve_instruct(
 
     Raises:
         ValueError: if any instruct item is unsupported or misspelled.
+
+    例子:
+        # 规范化分隔符/大小写/首尾逗号 (use_zh=False, 保持英文)
+        _resolve_instruct("Male， young adult,") -> "male, young adult"
+        # 文本含中文时统一成中文形式 (use_zh=True, 中文用全角逗号分隔)
+        _resolve_instruct("female, whisper", use_zh=True) -> "女，耳语"
+        # 拼错会报 ValueError, 并提示最接近的候选
+        _resolve_instruct("mael")            # ValueError: 建议 "male"
+        # 空或 None 直接返回 None
+        _resolve_instruct(None) -> None
     """
     if instruct is None:
         return None

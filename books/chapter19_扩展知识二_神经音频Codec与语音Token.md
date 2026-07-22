@@ -435,6 +435,31 @@ hop_length = 960
 
 这里要避免一个误解：**一帧 token 不等于机械地只看 960 个采样点**。神经 codec 的 encoder 往往包含卷积、下采样和上下文建模，一个时间位置的 latent 可能受到前后邻近音频的影响。工程上说 `hop_length=960`，主要是在说明时间轴上每隔 960 个采样点产出一个 token 帧。
 
+### 采样点、时间帧与 codebook ID 的数量关系
+
+一个常见误区是把"采样点"和"codebook token"一一对应，以为**一个振幅采样点会变成 8 个 codebook ID**。实际不是这样。原始波形里每个采样点只是**一个振幅浮点数**，它本身不会、也不需要变成 8 个 ID。
+
+正确的数量关系是"先聚合、再量化"两步：
+
+```text
+① 下采样：约 hop_length 个采样点 --encoder--> 1 个高维 latent 向量
+② 量化：  1 个 latent 向量 --RVQ 8 层逐级逼近--> 8 个 codebook ID
+```
+
+所以那 8 个 ID 描述的是**一整帧**（约上千个采样点压成的一个向量），不是单个振幅。层数 `8` 来自 RVQ 的层数（见 19.3），代表对同一个向量做 8 次由粗到细的逼近，而不是把振幅"拆成 8 份"。
+
+以 24 kHz、`hop_length=960` 为例：
+
+```text
+960 个采样点  →  1 个时间帧  →  8 个 codebook ID
+1 秒 = 24000 采样点 ≈ 25 帧 ≈ 25 × 8 = 200 个 codebook ID
+```
+
+在 OmniVoice 代码里，这条转换链对应两处：
+
+- `hop_length` 定义在 **audio tokenizer 的 config**（`self.audio_tokenizer.config.hop_length`，即 HiggsAudioV2 tokenizer 的配置），不在主模型里。
+- "采样点 → codebook token"的实际转换发生在 **`self.audio_tokenizer.encode(waveform)`**，它返回形状 `(C=8, T)` 的 `audio_codes`。此后整个推理都在 token 空间进行，不再接触波形。
+
 ## 19.6 Codebook 越多，信息一定越多吗
 
 每帧使用更多 codebook，理论上可以保留更多声学信息。因为每个时间位置不再只靠一个离散 ID 描述，而是由多层 token 共同描述。
