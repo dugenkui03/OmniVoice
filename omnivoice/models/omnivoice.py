@@ -1624,8 +1624,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             )
 
         # ===== step 1: 为每条样本构造推理输入 =====
-        # 每条得到 {input_ids: (1,C,S), audio_mask: (1,S)}:
+        # 【重要】每条得到 {input_ids: (1,C,S), audio_mask: (1,S)}:
         # 【style】 + 【text】 + 【可选 ref 音频】 + 【target 全 MASK 段】
+        # note 详细结构说明: omnivoice/models/_prepare_inference_inputs_input_ids.md
         # 各条长度可能不同(文本/参考不同), 后面统一 pad 到 max_c_len。
         inputs_list = [
             self._prepare_inference_inputs(
@@ -1641,7 +1642,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         ]
 
         # ===== step 2: 拼成 batch_size=2B 的 batch (cond + uncond, 供 CFG) =====
-        # c_len 是 每条 TTS 输入的 input_ids 张量的序列长度（S）组成的列表，size(2)是指获取(1, C, S)多维数组的第二维(从0开始)的size
+        # for inp in inputs_list 中 inp 是 {input_ids: (1,C,S), audio_mask: (1,S)}
+        #  (1,C,S).size(2) 是 S，即序列长度
+        # 最后结果 c_lens 就是一个列表，每个元素对应每个input的序列长度 【重要】
         c_lens = [inp["input_ids"].size(2) for inp in inputs_list]
         # max_c_len 是 所有 TTS 输入的 input_ids 张量的序列长度（S）中的最大值
         max_c_len = max(c_lens)
@@ -1649,32 +1652,31 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # pad 填充；mask 掩盖。使用 audio_mask_id 填充
         pad_id = self.config.audio_mask_id
         batch_input_ids = torch.full(
-            (2 * B, self.config.num_audio_codebook, max_c_len), # size: 形状 (2B, C, max_c_len)
+            (2 * B, self.config.num_audio_codebook, max_c_len), # 这个参数是shape， (2B, C, max_c_len)
             pad_id,  # fill_value: 用 MASK id 填满
             dtype=torch.long, # 整数 token ID
             device=self.device,  # 放到模型所在设备
         )
         batch_audio_mask = torch.zeros(
-            (2 * B, max_c_len), dtype=torch.bool, device=self.device
+            (2 * B, max_c_len),  # shape: (2B, max_c_len)
+            dtype=torch.bool,  # 布尔值
+            device=self.device  # 放到模型所在设备
         )
         batch_attention_mask = torch.zeros(
             (2 * B, 1, max_c_len, max_c_len), dtype=torch.bool, device=self.device
         )
 
-        # 逐条把 cond / uncond 两份输入填进 2B batch 的对应行:
-        #   第 i 行  = cond (完整序列, 长度 c_len)
-        #   第 B+i 行 = uncond (仅 target 段, 长度 u_len = target_lens[i])
+        # inp 是 {input_ids: (1,C,S), audio_mask: (1,S)}
         for i, inp in enumerate(inputs_list):
+            # c_len 是当前条件输入 input_ids 的完整序列长度，u_len 是待生成目标音频的 token 帧数。
             c_len, u_len = c_lens[i], task.target_lens[i]
 
             # Cond (前 B 条): 完整序列, attention 在前 c_len 范围内全连通
-            batch_input_ids[i, :, :c_len] = inp["input_ids"]
-            batch_audio_mask[i, :c_len] = inp["audio_mask"]
+            batch_input_ids[i, :, :c_len] = inp["input_ids"] 
+            batch_audio_mask[i, :c_len] = inp["audio_mask"] 
             batch_attention_mask[i, :, :c_len, :c_len] = True
 
-            # Uncond (后 B 条): 只取序列末尾的 target 段 (去掉 style/text/ref),
-            # 让模型在 "没有条件" 的情况下生成同样位置的 token, 用作 CFG 基线.
-            batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]
+            batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]  # -u_len:] 是指开始索引是 -u_len，所以这个表达式是获取序列末尾的 u_len 个值
             batch_audio_mask[B + i, :u_len] = inp["audio_mask"][..., -u_len:]
             batch_attention_mask[B + i, :, :u_len, :u_len] = True
             # 对 pad 区域开对角自注意, 避免 softmax 在全 False 行上出 NaN
