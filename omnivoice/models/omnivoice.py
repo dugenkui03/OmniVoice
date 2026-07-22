@@ -1662,8 +1662,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             dtype=torch.bool,  # 布尔值
             device=self.device  # 放到模型所在设备
         )
+        # note 控制自注意力中各序列位置是否可以相互关注，True 表示允许 attention。
+        # note 详细说明（第 3 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
         batch_attention_mask = torch.zeros(
-            (2 * B, 1, max_c_len, max_c_len), dtype=torch.bool, device=self.device
+            # shape (2B, 1, max_c_len, max_c_len)
+            # max_c_len 所有 TTS 输入的 input_ids 张量的序列长度（S）中的最大值
+            (2 * B, 1, max_c_len, max_c_len),
+            dtype=torch.bool,
+            device=self.device
         )
 
         # inp 是 {input_ids: (1,C,S), audio_mask: (1,S)}
@@ -1672,16 +1678,23 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             c_len, u_len = c_lens[i], task.target_lens[i]
 
             # Cond (前 B 条): 完整序列, attention 在前 c_len 范围内全连通
+            # note 切片赋值含义与示例（第 1 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
             batch_input_ids[i, :, :c_len] = inp["input_ids"] 
             batch_audio_mask[i, :c_len] = inp["audio_mask"] 
             batch_attention_mask[i, :, :c_len, :c_len] = True
 
-            batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]  # -u_len:] 是指开始索引是 -u_len，所以这个表达式是获取序列末尾的 u_len 个值
+            # note 切片赋值含义与示例（第 2 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
+            batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]
             batch_audio_mask[B + i, :u_len] = inp["audio_mask"][..., -u_len:]
             batch_attention_mask[B + i, :, :u_len, :u_len] = True
-            # 对 pad 区域开对角自注意, 避免 softmax 在全 False 行上出 NaN
+            # 如果最大的 input_ids 序列最大长度大于待生成音频的 token 数量
             if max_c_len > u_len:
-                pad_diag = torch.arange(u_len, max_c_len, device=self.device)
+                # torch.arange(2,5)生成左闭右开的 tensor([2, 3, 4])
+                pad_diag = torch.arange(
+                    u_len,  # start：起始索引，待生成音频的 token 数量
+                    max_c_len,  # end：结束索引， input_ids 序列最大长度
+                    device=self.device  # 在模型所在设备上创建张量
+                )
                 batch_attention_mask[B + i, :, pad_diag, pad_diag] = True
 
         # ===== step 3: 初始化 target 状态为全 MASK =====
@@ -1728,11 +1741,10 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         ).view(1, -1, 1)
 
         # ===== step 5: 迭代式 mask-fill 主循环 (共 num_step 轮) =====
-        # 每轮: 前向 → 取 target 区 logits → CFG 融合 → 层惩罚+Gumbel 打分 →
-        #       屏蔽已填位置 → top-k 选位置填入 → 回写上下文, 供下一轮参考。
         for step in range(gen_config.num_step):
-            # (5.1) 一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]
-            #       调用 self(...) 即触发 forward(), 内部走 Transformer + audio_heads。
+            # 【重要】
+            # (5.1) 调用到了 OmniVoice 的 forward() 方法，调用路径是： self() -> super.__call()__ -> forward()
+            #       一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]，内部走 Transformer + audio_heads。
             batch_logits = self(
                 input_ids=batch_input_ids,
                 audio_mask=batch_audio_mask,
