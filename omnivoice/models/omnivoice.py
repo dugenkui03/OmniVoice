@@ -1743,8 +1743,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # ===== step 5: 迭代式 mask-fill 主循环 (共 num_step 轮) =====
         for step in range(gen_config.num_step):
             # 【重要】
-            # (5.1) 调用到了 OmniVoice 的 forward() 方法，调用路径是： self() -> super.__call()__ -> forward()
+            # (5.1) 调用到了 OmniVoice 的 forward() 方法，调用路径是：self() -> nn.Module.__call__() -> forward()
             #       一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]，内部走 Transformer + audio_heads。
+            # note 推理流程与模型权重说明: omnivoice/models/_forward_inference_model_weights.md
             batch_logits = self(
                 input_ids=batch_input_ids,
                 audio_mask=batch_audio_mask,
