@@ -1,6 +1,6 @@
 # `batch_input_ids` 与 `batch_attention_mask` 赋值说明
 
-![Cond、Uncond 与 attention mask 赋值科普图](../../books/images/batch_input_ids_and_attention_mask.png)
+![Cond、Uncond 与 attention mask 赋值科普图](../images/batch_input_ids_and_attention_mask.png)
 
 本文用同一组数据说明三个操作：
 

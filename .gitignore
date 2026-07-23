@@ -39,3 +39,5 @@ examples/exp*
 .idea/
 *.wav
 *.jsonl
+.ttadk/
+specs/doc_export/

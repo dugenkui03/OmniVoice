@@ -1,6 +1,6 @@
 # OmniVoice 源码逐类学习：`omnivoice/models/omnivoice.py`
 
-本文按 `omnivoice/models/omnivoice.py` 中定义的 7 个类，逐节介绍每个类的作用、关键字段和在推理链路中的位置。阅读时可以配合 `README_ZH_LEARN.md`（推理全链路）和 `omnivoice/models/forward.md`（`forward()` 细节）。
+本文按 `omnivoice/models/omnivoice.py` 中定义的 7 个类，逐节介绍每个类的作用、关键字段和在推理链路中的位置。阅读时可以配合 [推理全链路](README_ZH_LEARN.md) 和 [`forward()` 细节](forward.md)。
 
 | # | 类 | 行 | 作用 |
 | --- | --- | --- | --- |

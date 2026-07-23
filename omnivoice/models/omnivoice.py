@@ -210,7 +210,15 @@ class GenerationTask:
 
 @dataclass
 class OmniVoiceModelOutput(ModelOutput):
+    """OmniVoice ``forward()`` 的标准返回结构。
+
+    ``ModelOutput`` 是 Hugging Face 提供的模型输出基类，支持通过
+    ``output.logits`` 等属性以及字典/元组形式访问返回字段。
+    """
+
+    # note 训练损失；传入 labels 时计算，推理时通常为 None。
     loss: Optional[torch.Tensor] = None
+    # note 各 codebook、各序列位置对候选 audio token 的原始分数，形状为 [B, C, S, V]。
     logits: Optional[torch.Tensor] = None
 
 
@@ -577,19 +585,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
     def forward(
         self,
-        input_ids: torch.LongTensor,
-        audio_mask: torch.Tensor,
+        input_ids: torch.LongTensor, # self()#batch_input_ids：Cond 与 Uncond 的 token
+        audio_mask: torch.Tensor, # self()#batch_audio_mask：区分文本位置和音频位置
         labels: Optional[torch.LongTensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None, # self()#batch_attention_mask 控制序列位置之间能否互相关注
         document_ids: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
     ):
-        """执行一次 OmniVoice 主模型前向计算, 并在训练时计算 audio token loss.
-
-        这个方法位于训练 step 的核心路径中: ``OmniTrainer.train`` 取出一个
-        batch 后调用 ``self.model(**batch)``, 实际进入的就是这里。forward
-        只负责根据当前权重做预测和计算 loss; 真正的反向传播和参数更新发生在
-        外层训练器里的 ``accelerator.backward(loss)`` 和 ``optimizer.step()``。
+        """执行一次 OmniVoice 主模型前向计算（并在训练时计算 audio token loss）.
 
         Args:
             input_ids: 混合序列 token, 形状通常为 ``(B, C, S)``。文本位置在
@@ -612,6 +615,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         # 1. 把输入序列变成 Transformer 可处理的 embedding。
         #    文本位置走 LLM 原生 text embedding; 音频位置走 audio_embeddings。
+        # 两个参数形状分别是 (B, C, S) 和 (B, S)
         inputs_embeds = self._prepare_embed_inputs(input_ids, audio_mask)
 
         # 2. flex_attention 的训练路径会使用 document_ids 表示 packed sequence
@@ -1626,7 +1630,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # ===== step 1: 为每条样本构造推理输入 =====
         # 【重要】每条得到 {input_ids: (1,C,S), audio_mask: (1,S)}:
         # 【style】 + 【text】 + 【可选 ref 音频】 + 【target 全 MASK 段】
-        # note 详细结构说明: omnivoice/models/_prepare_inference_inputs_input_ids.md
+        # note 详细结构说明: books/code_notes/_prepare_inference_inputs_input_ids.md
         # 各条长度可能不同(文本/参考不同), 后面统一 pad 到 max_c_len。
         inputs_list = [
             self._prepare_inference_inputs(
@@ -1663,7 +1667,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             device=self.device  # 放到模型所在设备
         )
         # note 控制自注意力中各序列位置是否可以相互关注，True 表示允许 attention。
-        # note 详细说明（第 3 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
+        # note 详细说明（第 3 节）: books/code_notes/_batch_input_ids_and_attention_mask.md
         batch_attention_mask = torch.zeros(
             # shape (2B, 1, max_c_len, max_c_len)
             # max_c_len 所有 TTS 输入的 input_ids 张量的序列长度（S）中的最大值
@@ -1678,12 +1682,12 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             c_len, u_len = c_lens[i], task.target_lens[i]
 
             # Cond (前 B 条): 完整序列, attention 在前 c_len 范围内全连通
-            # note 切片赋值含义与示例（第 1 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
+            # note 切片赋值含义与示例（第 1 节）: books/code_notes/_batch_input_ids_and_attention_mask.md
             batch_input_ids[i, :, :c_len] = inp["input_ids"] 
             batch_audio_mask[i, :c_len] = inp["audio_mask"] 
             batch_attention_mask[i, :, :c_len, :c_len] = True
 
-            # note 切片赋值含义与示例（第 2 节）: omnivoice/models/_batch_input_ids_and_attention_mask.md
+            # note 切片赋值含义与示例（第 2 节）: books/code_notes/_batch_input_ids_and_attention_mask.md
             batch_input_ids[B + i, :, :u_len] = inp["input_ids"][..., -u_len:]
             batch_audio_mask[B + i, :u_len] = inp["audio_mask"][..., -u_len:]
             batch_attention_mask[B + i, :, :u_len, :u_len] = True
@@ -1745,7 +1749,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             # 【重要】
             # (5.1) 调用到了 OmniVoice 的 forward() 方法，调用路径是：self() -> nn.Module.__call__() -> forward()
             #       一次 forward 同时跑 cond + uncond, 形状: [2B, C, S, V]，内部走 Transformer + audio_heads。
-            # note 推理流程与模型权重说明: omnivoice/models/_forward_inference_model_weights.md
+            # note 以 self(...) 调用入口为切入点的 forward 说明: books/code_notes/forward.md
             batch_logits = self(
                 input_ids=batch_input_ids,
                 audio_mask=batch_audio_mask,
