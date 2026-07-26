@@ -36,6 +36,9 @@ This is the main entry point for both inference and training:
 - **训练**：``model.forward()`` 计算训练损失；模型由
   ``omnivoice.training.builder`` 构建，并由 ``omnivoice.training.trainer`` 使用。
 
+- **Audio codebook 层级**：索引较小的前层（如 0、1、2）主要表示声音结构；
+  索引较大的后层继续量化前层残差，用于补充声音细节。
+
 - vocabulary/vocab: 词汇表
 -
 
