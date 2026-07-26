@@ -594,6 +594,55 @@ flowchart LR
 | 选择 token 和位置 | 根据类别温度、位置温度、置信度和层惩罚决定填哪些 |
 | 同步回输入 | 把新 token 写回 cond / uncond 输入，作为下一轮上下文 |
 
+### 20.8.1 `_get_time_steps()`：生成迭代解码的时间边界
+
+`_get_time_steps()` 生成从 `t_start` 到 `t_end` 的归一化解码时间边界，
+供后续代码计算每一轮应该 unmask 多少个 token。这里的时间步表示
+**迭代解码进度**，不是音频秒数或 audio token 时间帧。
+
+```python
+def _get_time_steps(
+    t_start: float = 0.0,
+    t_end: float = 1.0,
+    num_step: int = 10,
+    t_shift: float = 1.0,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    timesteps = torch.linspace(t_start, t_end, num_step + 1).to(device)
+    timesteps = t_shift * timesteps / (
+        1 + (t_shift - 1) * timesteps
+    )
+    return timesteps
+```
+
+计算分为两步：
+
+1. `torch.linspace(t_start, t_end, num_step + 1)` 在起点和终点之间生成
+   `num_step + 1` 个等间距边界，结果形状为 `(num_step + 1,)`。
+2. 每个初始时间点 `t` 再经过下面的非线性变换：
+
+```text
+t' = t_shift × t / (1 + (t_shift - 1) × t)
+```
+
+当 `num_step=4`、`t_start=0`、`t_end=1`、`t_shift=1` 时：
+
+```text
+linspace 结果：[0.00, 0.25, 0.50, 0.75, 1.00]
+变换后结果： [0.00, 0.25, 0.50, 0.75, 1.00]
+shape：      (5,)
+```
+
+`t_shift=1` 时公式不会改变等间距结果。当 `t_shift=0.1` 时，同一组初始
+时间点会变成：
+
+```text
+[0.0000, 0.0323, 0.0909, 0.2308, 1.0000]
+```
+
+相邻时间边界的差值用于计算每一轮的 unmask 数量。`t_shift=0.1` 会让
+前期边界更密、每轮填入较少 token，后期区间更大、填入更多 token。
+
 这里的 `self(...)` 是 PyTorch 的调用语法，实际进入 `OmniVoice.forward()`。因此推理阶段会反复调用 `forward()`，但每次 `forward()` 只负责当前状态下的一次 logits 计算。
 
 > 💡 **小科普：Classifier-Free Guidance 是什么？**

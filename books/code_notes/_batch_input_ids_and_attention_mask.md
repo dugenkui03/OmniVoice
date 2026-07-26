@@ -85,8 +85,10 @@ batch_input_ids[i, :, :c_len] = inp["input_ids"]
 batch_input_ids[1, :, :9] = inp["input_ids"]
 ```
 
-左侧形状为 `(C, c_len) = (2, 9)`，右侧形状为 `(1, 2, 9)`。赋值时，
-PyTorch 将右侧最前面的单元素维度 `1` 作为可广播维度处理。
+左侧形状为 `(C, c_len) = (2, 9)`，右侧形状为 `(1, 2, 9)`。PyTorch
+索引赋值会兼容右侧多余的前导单元素维度；这里可以理解为先通过
+`squeeze(0)` 得到 `(2, 9)`，再逐元素覆盖左侧区域。这个过程不会复制
+数据，不属于沿 codebook 维展开数据的普通广播。
 
 赋值后，batch 第 `1` 行为：
 
@@ -150,8 +152,14 @@ batch_attention_mask = torch.zeros(
 )
 ```
 
+形状 `(2B, 1, max_c_len, max_c_len)` 中，
+`batch_attention_mask[b, 0, x, y] = True` 表示第 `b` 条样本的 query
+位置 `x` 可以关注 key/value 位置 `y`。`x`、`y` 均覆盖补齐到
+`max_c_len` 后的所有序列位置；第 `1` 维长度为 `1`，会广播到所有
+attention head。不同 batch 样本之间不能通过该矩阵互相关注。
+
 本例形状为 `(4, 1, 9, 9)`，即 `4` 个初始全为 `False` 的 `9×9`
-attention 矩阵。最后两个维度分别表示“当前位置”和“可以关注的位置”。
+attention 矩阵。
 
 ### 3.2 Cond：完整序列互相关注
 
@@ -204,3 +212,81 @@ batch_attention_mask[B + i, :, pad_diag, pad_diag] = True
 
 左上角 `2×2` 表示两个 target 位置可以互相关注；其余对角线上的 `T`
 表示每个 padding 位置只允许关注自己。
+
+### 3.4 `pad_diag` 的成对高级索引
+
+下面这行使用 PyTorch 的高级索引（advanced indexing），更具体地说是
+成对整数索引：
+
+```python
+batch_attention_mask[B + i, :, pad_diag, pad_diag] = True
+```
+
+固定 batch 和长度为 `1` 的第 1 维后，可以先把 attention mask 简化成
+二维矩阵：
+
+```python
+matrix = batch_attention_mask[B + i, 0]
+```
+
+此时：
+
+```text
+matrix.shape = (max_c_len, max_c_len)
+```
+
+原赋值可以简化为：
+
+```python
+matrix[pad_diag, pad_diag] = True
+```
+
+假设：
+
+```python
+pad_diag = torch.tensor([2, 3, 4])
+```
+
+两个索引张量会按元素位置逐项配对：
+
+```text
+第一个 pad_diag：2       3       4
+第二个 pad_diag：2       3       4
+最终坐标：       (2,2)   (3,3)   (4,4)
+```
+
+所以原赋值等价于：
+
+```python
+matrix[2, 2] = True
+matrix[3, 3] = True
+matrix[4, 4] = True
+```
+
+它只设置三个对角线点，不会设置 `(2,3)`、`(2,4)` 等位置。二维选择结果
+`matrix[pad_diag, pad_diag]` 的形状为 `(3,)`；保留原张量第 1 维的完整
+写法，选择结果形状为 `(1, 3)`。
+
+两个高级索引张量不要求形状完全相同，但必须能够广播：
+
+```python
+# 形状分别为 (3,) 和 (4,)，无法配对或广播，会报错
+matrix[torch.tensor([1, 2, 3]), torch.tensor([4, 5, 6, 7])]
+
+# 形状分别为 (2, 1) 和 (1, 3)，广播为 (2, 3)
+row_idx = torch.tensor([2, 3])[:, None]
+col_idx = torch.tensor([4, 5, 6])[None, :]
+matrix[row_idx, col_idx] = True
+```
+
+第二种写法会生成全部六个坐标：
+
+```text
+(2,4) (2,5) (2,6)
+(3,4) (3,5) (3,6)
+```
+
+因此，当前代码重复使用同一个 `pad_diag`，目的就是让 query 和 key
+索引一一对应，只开放 padding 区域的对角线。通用的索引、维度消除与
+广播规则也可参考
+[第二十一章 21.10 节](../chapter21_扩展知识四_注意力机制QKV与MultiHeadAttention.md#2110-代码阅读补充索引赋值单元素维度与广播)。

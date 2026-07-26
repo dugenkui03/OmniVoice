@@ -40,4 +40,5 @@ examples/exp*
 *.wav
 *.jsonl
 .ttadk/
+.codex/
 specs/doc_export/
