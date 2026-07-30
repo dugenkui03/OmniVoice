@@ -353,7 +353,9 @@ def cross_fade_chunks(
     sample_rate: int,
     silence_duration: float = 0.3,
 ) -> np.ndarray:
-    """Concatenate audio chunks with silence gaps and cross-fade at boundaries.
+    """Concatenate(拼接) audio chunks with silence gaps and cross-fade at boundaries.
+    - cross-fade：交叉淡化，通常指前一段淡出的同时，后一段淡入，使连接更自然
+    【注】：仅仅是长音频的情况，比如30s音频拆成了两个15处理的时候、在这个方法中进行拼接
 
     Args:
         chunks: list of numpy arrays, each (C, T).

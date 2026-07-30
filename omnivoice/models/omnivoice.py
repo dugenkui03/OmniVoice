@@ -40,7 +40,9 @@ This is the main entry point for both inference and training:
   索引较大的后层继续量化前层残差，用于补充声音细节。
 
 - vocabulary/vocab: 词汇表
--
+
+TODO：
+audio tokenizer: https://huggingface.co/docs/transformers/model_doc/higgs_audio_v2_tokenizer
 
 """
 
@@ -126,8 +128,8 @@ class OmniVoiceGenerationConfig:
     guidance_scale: float = 2.0     # Classifier-Free Guidance 强度, 0 表示关闭
     t_shift: float = 0.1            # 时间步采样的偏移, 越小越偏向 "先解低 SNR/噪声大" 的位置
     layer_penalty_factor: float = 5.0   # codebook 层惩罚: 让靠前(语义)的 codebook 先被解出
-    position_temperature: float = 5.0   # 选位置时加在 score 上的 Gumbel 噪声温度
-    class_temperature: float = 0.0      # 选 token id 时的采样温度, 0 = 贪心 argmax
+    position_temperature: float = 5.0   # 控制本轮优先填哪些 (codebook, 时间) 位置，温度越高随机性越高
+    class_temperature: float = 0.0      # 控制每个位置选择哪个 token ID，温度越高随机性越高
     denoise: bool = True                # 是否在序列前插入 <|denoise|> 特殊 token
     preprocess_prompt: bool = True      # 是否对参考音频做去静音/裁剪等预处理
     postprocess_output: bool = True     # 是否对输出做去静音/淡入淡出
@@ -900,7 +902,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             # 获取短音频子任务集合
             short_task = full_task.slice_task(short_idx)
             # 【重点】看短任务就行
-            #       _generate_iterative 是推理生成的核心函数，负责按帧迭代解码音频 token，
+            #       _generate_iterative 是推理生成的核心函数，迭代 step 次填充结果token
             short_results = self._generate_iterative(short_task, gen_config)
             # zip()：把多个序列"按位置配对"一起遍历
             for idx, res in zip(short_idx, short_results):
@@ -1075,9 +1077,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
     def _decode_and_post_process(
         self,
-        tokens: Union[torch.Tensor, List[torch.Tensor]],
-        rms: Union[float, None],
-        gen_config: OmniVoiceGenerationConfig,
+        tokens: Union[torch.Tensor, List[torch.Tensor]], # tts 结果token
+        rms: Union[float, None], # tts 结果对应的响度
+        gen_config: OmniVoiceGenerationConfig, # tts 配置
     ) -> np.ndarray:
         """
         将声音token解码成声音波形
@@ -1092,39 +1094,47 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         """
         tokenizer_device = self.audio_tokenizer.device
         if isinstance(tokens, list):
-            # 长文本分段生成: 每个 chunk 单独解码后用 cross-fade 重叠拼接,
-            # 避免在拼接处出现 click/爆音
+            # 【注意】长音频拆解成多个短音频的时候走这个 if 链路处理，比如 30s 音频拆解成 2 个15秒
             chunk_audios = [
-                self.audio_tokenizer.decode(t.to(tokenizer_device).unsqueeze(0))
+                self.audio_tokenizer.decode(t.to(tokenizer_device).unsqueeze(0)) # (C, T).unsqueeze(0) → (1, C, T); audio_tokenizer.decode: 解码结果为音频波形，(1, 1, T_samples)，分别为 batch、声道、采样点
                 .audio_values[0]
                 .cpu()
                 .numpy()
-                for t in tokens
+                for t in tokens # 遍历 (C, T) 列表、列表每个元素是长音频拆解成的音频 chunk ， t的格式是 (C, T)
             ]
             audio_waveform = cross_fade_chunks(chunk_audios, self.sampling_rate)
         else:
-            # 短句: 一次性 decode (C, T) → 波形
+            # 【重点】【重点】【重点】 token 转 采样率格式的声音信息/声音波形
+            #       短句: 一次性 decode (C, T) → 波形
             audio_waveform = (
+                # (C, T).unsqueeze(0) → (1, C, T);
+                # audio_tokenizer.decode: 解码结果为音频波形，(1, 1, T_samples)，分别为 batch、声道、采样点
                 self.audio_tokenizer.decode(tokens.to(tokenizer_device).unsqueeze(0))
-                .audio_values[0]
+                .audio_values[0] # (1, 1, T_samples) -> (1, T_samples)
                 .cpu()
                 .numpy()
             )
 
+        # _post_process_audio 没有对格式做处理，只是对响度、静音等做处理
         audio_waveform = self._post_process_audio(
             audio_waveform,
-            postprocess_output=gen_config.postprocess_output,
-            ref_rms=rms,
+            postprocess_output=gen_config.postprocess_output, # 是否对输出做去静音/淡入淡出
+            ref_rms=rms, # 音频响度
         )
-        return audio_waveform.squeeze(0)
+        return audio_waveform.squeeze(0) # (1, T_samples) -> (T_samples, )
 
     def _post_process_audio(
         self,
-        generated_audio: np.ndarray,
-        postprocess_output: bool,
-        ref_rms: Union[float, None],
+        generated_audio: np.ndarray, # audio tokenizer 解码出的波形
+        postprocess_output: bool, #  # 是否对输出做去静音/淡入淡出
+        ref_rms: Union[float, None], # 声音响度
     ) -> np.ndarray:
         """Optionally remove long silences, adjust volume, and add edge padding.
+        生成波形 (1, T)
+        → 可选去除长静音
+        → 调整音量
+        → 淡入淡出并在首尾添加静音
+        → 处理后波形 (1, T')
 
         Args:
             generated_audio: Numpy array of shape (1, T).
@@ -1134,6 +1144,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             Processed numpy array of shape (1, T).
         """
         if postprocess_output:
+            # 去除长静音
             generated_audio = remove_silence(
                 generated_audio,
                 self.sampling_rate,
@@ -1757,7 +1768,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # (B, C, max_target_audio_length)，形状对齐输出
         # max_target_audio_length 和 max_c_len 的区别是，后者也包括输入
         tokens = torch.full(
-            (B, self.config.num_audio_codebook, max(task.target_lens)),
+            (B, self.config.num_audio_codebook, max(task.target_lens)), # (B, C, max_target_length)
             self.config.audio_mask_id, # 初始化值
             dtype=torch.long,
             device=self.device,
@@ -1795,7 +1806,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 rem -= int(num) # 剩余要生成的token数量
             schedules.append(sched)
 
-        # 结果形状 (1, 8, 1)，值其实就是 [ [ [0],[2] ... [7] ] ]
+        # 结果形状 (1, 8, 1)，值其实就是 [ [ [0], [1],[2] ... [7] ] ]
         layer_ids = torch.arange(
             self.config.num_audio_codebook,
             device=self.device
@@ -1834,39 +1845,60 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 u_logits = batch_logits[B + i : B + i + 1, :, :t_len, :]
 
                 # (5.3)【重要】
-                # 返回预测的每个位置的 tokenID 及其对应的 分数
+                # 返回预测的每个位置的 tokenID 及其对应的 分数，形状都是 (1, C, target_len)
                 pred_tokens, scores = self._predict_tokens_with_scoring(
                     c_logits, u_logits, gen_config
                 )
 
-                # (5.4) 层惩罚: codebook 越靠后分数越低, 让靠前(粗)层优先被选, 形成粗→细
+                # (5.4) 层惩罚:
+                #   前层 codebook：表示声音的主要结构：发音内容、音节轮廓、节奏、音高走势、基础音色和主要频谱结构
+                #   后层 codebook：补充残差和细节：高频纹理、谐波细节、气声、摩擦音、瞬态、细微音色以及环境声等重建细节
+                #   使前层的调整后分数相对更高：就是先生成主要结构，然后填充细节
+                #  layer_ids [ [ [0], [1],[2] ... [7] ] ] * 5.0；layer_penalty_factor 默认值 5.0
                 scores = scores - (layer_ids * gen_config.layer_penalty_factor)
 
-                # (5.5) 位置温度: 给 score 加 Gumbel 噪声, 引入位置选择的随机性(非纯贪心)
+                # (5.5) 通过添加 _gumbel_ 噪声来影响具体选择哪个位置的 token
+                #       位置温度: scores 形状为 (1, C, t_len)，每个元素是一个待填位置的置信度。
+                #       加 Gumbel 噪声只影响“本轮优先填哪些位置”，不会改变这些位置的 pred_tokens。
                 if gen_config.position_temperature > 0.0:
                     scores = _gumbel_sample(scores, gen_config.position_temperature)
 
                 # (5.6) 已经填过的位置不能再被选, 把它们的分数设为 -inf 排除
-                sample_tokens = tokens[i : i + 1, :, :t_len]
+                # 【注意】 sample_tokens 是个空 tensor，但是给其赋值的 scores 是已经经过「分数->概率->加噪声的概率」处理之后获取的分数
+                sample_tokens = tokens[i : i + 1, :, :t_len] # (1, C, t_len)，目标音频的位置
                 scores.masked_fill_(
-                    sample_tokens != self.config.audio_mask_id, -float("inf")
+                    sample_tokens != self.config.audio_mask_id, # sample_tokens 中的元素逐个和 audio_mask_id 做对比，如果为true则使用第二个参数覆盖 sample_tokens，否则保留原样
+                    -float("inf")
                 )
 
-                # (5.7) 在 (C × t_len) 个位置里按分数取 top-k, 只把这 k 个位置填上预测 token
-                #       (其余位置保持 MASK, 留给后续轮次)
+                # (5.7) 之前选择了 tokenID/位置下标 等，将数据变换等放到 sample_tokens 中
+                #  k: 在 k 个位置上填充结果 token
+                #  scores.flatten()：将 scores Tensor 打平，
+                #       比如 scores 是一个 (a,b,c....x) Tensor，则 scores.flatten() 结果是 [a*b*c*...*x,] 形状
+                #  torch.topk(scores_flatten, k) 从一维张量 scores_flatten 中
+                #      获取最大的 K 个值的：最大值列表, 最大值对应的下标列表
                 _, topk_idx = torch.topk(scores.flatten(), k)
+                # sample_tokens 形状是 (1, C, target_len)，是结果音频区域形状
                 flat_tokens = sample_tokens.flatten()
+                # step 1: pred_tokens, # (1, C, target_len)：张量中结果位置的元素选择的tokenID
+                # step 2: pred_tokens.flatten()[topk_idx]：使用 topk_idx 取出分数最高的 k 个位置对应的预测 token ID
+                # step 3: 整行代码：将 step2 获取的 token ID 写入 flat_tokens 的相同位置
                 flat_tokens[topk_idx] = pred_tokens.flatten()[topk_idx]
+                # flat_tokens.view_as(sample_tokens) 将 一维的 flat_tokens 恢复成 sample_tokens 的形状
+                # b.copy_(c)： 将c中的数据复制给b、修改了b，并返回修改的b
                 sample_tokens.copy_(flat_tokens.view_as(sample_tokens))
 
-                # (5.8) 把新填的 token 回写: tokens(最终结果) + cond/uncond 两份输入,
-                #       让已确定的 token 成为下一轮预测的上下文。
+                # (5.8)【重要】把新填的 token 回写到最终结果 tokens 中
                 tokens[i : i + 1, :, :t_len] = sample_tokens
+                # 将当前完整 target 状态（已生成 token + 剩余 MASK）
+                # 同步到 Cond 的 target 区域，供下一轮有条件预测使用。
                 batch_input_ids[i : i + 1, :, c_len - t_len : c_len] = sample_tokens
+                # 将相同 target 状态同步到 Uncond 的前 t_len 个位置，
+                # 保证下一轮 CFG 两路具有相同生成进度。
                 batch_input_ids[B + i : B + i + 1, :, :t_len] = sample_tokens
 
-        # ===== step 6: 裁掉 padding, 返回每条 (C, T) =====
-        # tokens 是按 max(target_lens) 铺的, 每条按自己的 target_lens[i] 截取有效帧。
+        # ===== step 6: 裁掉 padding返回最终结果，注意是 Batch 条数据 =====
+        # task.target_lengs[i] i 条数据的 target_tokens 长度
         return [tokens[i, :, : task.target_lens[i]] for i in range(B)]
 
     def _predict_tokens_with_scoring(self, c_logits, u_logits, gen_config):
@@ -1911,7 +1943,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # self.config.audio_mask_id 位置是一个占位符，不是真正的音频token，所以其概率设置成 负无穷
         log_probs[..., self.config.audio_mask_id] = -float("inf") # -float("inf") 是负无穷
 
-        # 这里温度的概率同 openAI 和 gemini api 基本相同，就是温度为0就是用最大概率的token、默认温度为0
+        # 类别温度: 控制每个位置从 V 个候选中选择哪个 token ID。
+        # 0 表示直接选择最高分 token；大于 0 时先保留 top 10% 候选，再进行 Gumbel-Max 采样。
         if gen_config.class_temperature > 0.0:
             filtered_probs = _filter_top_k(log_probs, ratio=0.1)
             pred_tokens = _gumbel_sample(
@@ -1929,7 +1962,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         confidence_scores = max_result[0]  # [0] 取最大值 values，形状为 (1, C, target_len)。
 
         return (
-            pred_tokens, # (1, C, target_len)：每个元素是选择的tokenID
+            pred_tokens, # (1, C, target_len)：张量中结果位置的元素选择的tokenID
             confidence_scores # (1, C, target_len)：每个元素是每个位置token之前计算出的概率最大值
         )
 
@@ -2129,9 +2162,18 @@ def _filter_top_k(logits: torch.Tensor, ratio: float = 0.1) -> torch.Tensor:
 
 
 def _gumbel_sample(logits: torch.Tensor, temperature: float) -> torch.Tensor:
-    scaled_logits = logits / temperature
-    u = torch.rand_like(scaled_logits)
+    """
+    Gumbel噪声特点：高分候选大多数时候会被选中，但低分候选也保留少量“爆冷”机会 —— 温度越高爆冷概率越大
+    Returns:
+        加入 Gumbel 噪声后的分数，形状与 ``logits`` 相同。
+    """
+    scaled_logits = logits / temperature # tensor 逐元素和 temperature 相除
+    u = torch.rand_like(scaled_logits) # 创建一个与 scaled_logits 形状、存储位置(cpu/gpu)等相同的 Tensor，每个元素都是 [0, 1) 范围内的随机数
+    # 标准 Gumbel 噪声生成公式
+    # 1e-10 是科学技术法： 1e10 是 ... , 1e-10 是，参数 u 是上边生成的形状相同的随机数 tensor
+    # torch.log 表示对 Tensor 的每个元素计算自然对数
     gumbel_noise = -torch.log(-torch.log(u + 1e-10) + 1e-10)
+    # 原始分数与随机数 tensor 相加，加上 gumbel 噪声
     return scaled_logits + gumbel_noise
 
 
