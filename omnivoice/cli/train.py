@@ -18,7 +18,7 @@
 """Training CLI for OmniVoice.
 
 Launches distributed training via HuggingFace Accelerate.
-Supports pre-training on Emilia data and finetuning on custom data.
+Supports pre-training on Emilia data(数据集) and finetuning on custom data.
 
 Usage:
     accelerate launch --gpu_ids 0,1,2,3 --num_processes 4 \\
@@ -36,17 +36,16 @@ from omnivoice.training.builder import build_dataloaders, build_model_and_tokeni
 from omnivoice.training.config import TrainingConfig
 from omnivoice.training.trainer import OmniTrainer
 
-
 def main():
-    parser = argparse.ArgumentParser(description="OmniVoice Training Entry Point")
+    parser = argparse.ArgumentParser(description="OmniVoice Training Entry Point") # omnivoice 训练入口
     parser.add_argument(
-        "--train_config", type=str, required=True, help="Path to config JSON"
+        "--train_config", type=str, required=True, help="Path to config JSON" # 训练配置
     )
     parser.add_argument(
-        "--output_dir", type=str, required=True, help="Where to save checkpoints"
+        "--output_dir", type=str, required=True, help="Where to save checkpoints" # 训练的权重保存位置
     )
     parser.add_argument(
-        "--data_config", type=str, required=True, help="Path to data config JSON"
+        "--data_config", type=str, required=True, help="Path to data config JSON" #数据配置
     )
     args = parser.parse_args()
 

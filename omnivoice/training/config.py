@@ -20,6 +20,10 @@
 Defines ``TrainingConfig``, a dataclass that holds all hyperparameters and paths
 for training. Loaded from a JSON config file via ``TrainingConfig.from_json()``
 in ``omnivoice.cli.train``.
+定义了 ``TrainingConfig``。这是一个保存训练所需全部超参数和路径的数据类。
+
+在 ``omnivoice.cli.train`` 中，通过 ``TrainingConfig.from_json()``
+从 JSON 配置文件加载这些配置。
 """
 
 import json
@@ -30,16 +34,18 @@ from typing import List, Optional, Tuple
 @dataclass
 class TrainingConfig:
     # Key Paths
-    output_dir: Optional[str] = None
-    data_config: Optional[str] = None
+    output_dir: Optional[str] = None # 输出文件夹
+    data_config: Optional[str] = None # 数据配置
 
     # Model Specific
-    llm_name_or_path: str = "Qwen/Qwen3-0.6B"
-    audio_vocab_size: int = 1025  # valid vocab size + 1 (mask token)
-    audio_mask_id: int = 1024  # 1024 is the 1025-th token
-    num_audio_codebook: int = 8
+    llm_name_or_path: str = "Qwen/Qwen3-0.6B" # 模型路径，注意、也是用到了 Qwen 的文本 tokenizer
+    audio_vocab_size: int = 1025  # valid vocab size + 1 (mask token)。【tips】音频 token 词表总大小是1024，加上一个 mask token
+    audio_mask_id: int = 1024  # 1024 is the 1025-th token 【tips】1024个音频token
+    num_audio_codebook: int = 8 # codebook 层数
 
     # Model Training Specific
+    #   audio_codebook_weights: List[float | int] 声明了变量和变量类型
+    #   lambda: [8, 8, 6, 6, 4, 4, 2, 2] —— 是个函数，总是返回 [...]
     audio_codebook_weights: List[float | int] = field(
         default_factory=lambda: [8, 8, 6, 6, 4, 4, 2, 2]
     )
