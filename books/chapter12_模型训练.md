@@ -4,6 +4,8 @@ TTS（Text-to-Speech，文本转语音）的训练，不只是把音频喂给模
 
 本章既讲工程流程，也讲训练背后的直觉：token 怎么变成 embedding，标签怎么和声音表现建立关系，loss 为什么能推动权重更新，checkpoint 到底保存了什么。
 
+如果对 dataset、sample、DataLoader、batch、step 和 epoch 的层级关系还不熟悉，可以先读 [《模型训练的基本说明》](模型训练的基本说明.md)。该文也把这些概念映射到 OmniVoice 的实际训练循环。
+
 训练主线可以先这样看：
 
 ```text

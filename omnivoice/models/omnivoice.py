@@ -777,7 +777,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
     # Inference API
     # -------------------------------------------------------------------
 
-    @torch.inference_mode()
+    @torch.inference_mode() # inference_mode(): 关闭梯度记录，减少显存并加速
     def generate(
         self,
         text: Union[str, list[str]],

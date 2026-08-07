@@ -109,7 +109,7 @@ if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
         --gpu_ids "${GPU_IDS}" \
         --num_processes ${NUM_GPUS} \
         -m omnivoice.cli.train \
-        --train_config ${TRAIN_CONFIG} \
+        --train_config ${TRAIN_CONFIG} \ # 指定训练配置
         --data_config ${data_config} \
         --output_dir ${OUTPUT_DIR}
 fi

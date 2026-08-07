@@ -58,8 +58,8 @@ class TrainingConfig:
     only_instruct_ratio: float = 0.5
 
     # Init settings
-    resume_from_checkpoint: Optional[str] = None
-    init_from_checkpoint: Optional[str] = None
+    resume_from_checkpoint: Optional[str] = None  # 断点续训：恢复模型、优化器、调度器和训练进度
+    init_from_checkpoint: Optional[str] = None  # 新训练初始化：只加载已有模型权重（常用于微调）
 
     # Training Hyperparams
     learning_rate: float = 1e-4

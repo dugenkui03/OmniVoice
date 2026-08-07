@@ -20,6 +20,15 @@
 Wraps the HuggingFace Accelerate training loop with checkpoint saving/resuming,
 evaluation, gradient accumulation, and learning rate scheduling.
 Launched via ``omnivoice.cli.train``.
+
+中文说明:
+    OmniVoice 的训练循环。基于 HuggingFace Accelerate 封装, 在其之上补充了:
+      - checkpoint 保存与恢复 (断点续训);
+      - 定期评估 (evaluation);
+      - 梯度累积 (gradient accumulation, 用小显存模拟大 batch);
+      - 学习率调度 (learning rate scheduling, 含 warmup)。
+    由 ``omnivoice.cli.train`` 启动: cli 负责解析配置、构建模型和 dataloader,
+    本文件的 OmniTrainer 负责实际的"取 batch -> forward -> backward -> 更新权重"循环。
 """
 
 import logging
@@ -31,6 +40,7 @@ from datetime import timedelta
 from typing import Any, Optional
 
 import torch
+# accelerate 让同一份训练代码能在不同硬件配置上跑
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import DeepSpeedPlugin, InitProcessGroupKwargs, set_seed
 from torch.utils.data import DataLoader
@@ -46,7 +56,17 @@ logger = logging.getLogger(__name__)
 
 
 def _to_device(batch, device):
-    """Move all tensors in a batch dict to the target device."""
+    """Move all tensors in a batch dict to the target device.
+    把 batch 字典里的所有 Tensor 搬到模型所在设备，非 Tensor 数据保持不变
+    
+    batch 是一个 Python dict，保存一批训练/验证数据。数据示例：
+    {
+        "input_ids": Tensor(...),
+        "audio_mask": Tensor(...),
+        "labels": Tensor(...),
+        "attention_mask": Tensor(...),
+    }
+    """
     return {
         k: v.to(device, non_blocking=True) if isinstance(v, torch.Tensor) else v
         for k, v in batch.items()
@@ -64,16 +84,22 @@ class OmniTrainer:
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[Any] = None,
     ):
+        # 训练配置
         self.config = config
+        # 要训练的模型？
         self.model = model
+        # 分词器
         self.tokenizer = tokenizer
+        # 训练数据集加载器
         self.train_dataloader = train_dataloader
+        # 模型验证集的 DataLoader
         self.eval_dataloader = eval_dataloader
 
-        # 1. Initialize Accelerator
+        # 1. Initialize Accelerator 协助分布式训练
         self.accelerator = self._init_accelerator()
 
         # 2. Setup Optimizer & Scheduler if not provided
+        #   设置训练时候的核心组件: 优化器和学习率调度器
         if optimizer is None:
             self.optimizer, self.lr_scheduler = self.create_optimizer_and_scheduler()
         else:
@@ -87,6 +113,7 @@ class OmniTrainer:
             ] = 1
 
         # 4. Prepare with Accelerator
+        # 元组解包：把 prepare() 返回的 3 个对象依次赋给左侧 3 个变量，数量必须严格匹配。
         (self.model, self.optimizer, self.lr_scheduler,) = self.accelerator.prepare(
             self.model,
             self.optimizer,
@@ -97,7 +124,10 @@ class OmniTrainer:
         self.epoch = 0
 
     def _init_accelerator(self) -> Accelerator:
-        """Initialize Accelerator, DeepSpeed, and Logging."""
+        """Initialize Accelerator, DeepSpeed, and Logging.
+            Accelerator: 加速器，用于分布式训练
+            DeepSpeed: 深度学习加速库，用于分布式训练
+        """
         # TF32 setup
         if getattr(self.config, "allow_tf32", False):
             torch.set_float32_matmul_precision("high")
@@ -159,7 +189,11 @@ class OmniTrainer:
         return accelerator
 
     def create_optimizer_and_scheduler(self):
-        """Default AdamW + configurable LR Scheduler."""
+        """Default AdamW + configurable LR Scheduler.
+            重要概念:
+                AdamW: 一种优化器 Optimizer，用于训练模型
+                Learning Rate Scheduler: 一种调度器，用于调整学习率
+        """
         optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.learning_rate,
@@ -208,18 +242,21 @@ class OmniTrainer:
 
     def evaluate(self):
         """Evaluation loop."""
+        # 如果没有验证集则直接返回
         if self.eval_dataloader is None:
             return {}
 
+        # 设置模型为评估模式。eval和推理的关系：“验证”和“推理”是eval模式下的两种使用场景，不是两种独立的模型模式。
         self.model.eval()
         logger.info(f"Running evaluation at step {self.global_step}...")
 
+        # 在当前设备创建值为 0 的标量 Tensor，用于累加各验证 batch 的 loss。
         local_loss_sum = torch.tensor(0.0, device=self.accelerator.device)
         eval_count = 0
 
         with torch.no_grad():
-            for eval_batch in self.eval_dataloader:
-                eval_batch = _to_device(eval_batch, self.accelerator.device)
+            for eval_batch in self.eval_dataloader: # 遍历验证集的 DataLoader
+                eval_batch = _to_device(eval_batch, self.accelerator.device) # 数据准备，方便模型计算
                 outputs = self.model(**eval_batch)
                 local_loss_sum += outputs.loss.detach()
                 eval_count += 1
@@ -245,8 +282,9 @@ class OmniTrainer:
         logger.info("Starting Training Loop...")
 
         # Resume if configured
+        # 从 checkpoint 恢复训练
         if self.config.resume_from_checkpoint:
-            self.load_checkpoint(self.config.resume_from_checkpoint)
+            self.load_checkpoint(self.config.resume_from_checkpoint) # 从指定路径加载 checkpoint
 
         # Handle IterableDataset Epochs
         if hasattr(self.train_dataloader.dataset, "set_epoch"):
