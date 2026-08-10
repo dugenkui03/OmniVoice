@@ -314,9 +314,10 @@ class OmniTrainer:
         # .mean() 是 tensor 的 方法，计算所有元素的平均值，结果是张量标量
         # .item() 是 tensor 的 方法，将张量标量转换成 python 数值， .item() 只能用只有一个元素的 tensor
         final_eval_loss = all_means.mean().item()
-        
+
+        # 记录评估指标
         eval_metrics = {"eval/loss": final_eval_loss}
-        self.accelerator.log(eval_metrics, step=self.global_step) # 仅做记录
+        self.accelerator.log(eval_metrics, step=self.global_step)
         logger.info(f"Eval Loss: {final_eval_loss:.4f}")
 
         self.accelerator.wait_for_everyone() # 等待所有gpu都完成评估
