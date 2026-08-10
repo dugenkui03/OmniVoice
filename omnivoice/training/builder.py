@@ -70,12 +70,12 @@ def build_model_and_tokenizer(
         tokenizer.pad_token = tokenizer.eos_token
 
     new_tokens = [
-        "<|denoise|>",
-        "<|lang_start|>",
+        "<|denoise|>", # 去噪提示符
+        "<|lang_start|>", # 语言开始提示符
         "<|lang_end|>",
-        "<|instruct_start|>",
+        "<|instruct_start|>", # 指令：国籍、性别、口音
         "<|instruct_end|>",
-        "<|text_start|>",
+        "<|text_start|>", # 引用内容文本和tts文本
         "<|text_end|>",
     ]
 
@@ -142,6 +142,7 @@ def build_dataloaders(
     """
     logger.info("Initializing Data Readers...")
 
+    # 将输入转换成 输入Tensor
     processor = OmniVoiceSampleProcessor(
         text_tokenizer=tokenizer,
         num_channels=config.num_audio_codebook,
@@ -163,8 +164,11 @@ def build_dataloaders(
     use_packing = config.attn_implementation == "flex_attention"
 
     if use_packing:
+        # 训练数据对象
         train_dataset = PackingIterableDataset(
-            raw_train_ds, processor, config.batch_tokens
+            raw_train_ds, 
+            processor, 
+            config.batch_tokens
         )
         collate_fn = PackingDataCollator(processor, config.batch_tokens)
     else:

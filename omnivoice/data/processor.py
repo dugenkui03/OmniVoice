@@ -36,6 +36,8 @@ class OmniVoiceSampleProcessor:
     """
     Handles the logic of processing a raw sample into tensors
     (masking, tokenization, etc.).
+
+    将输入样本转换成 输入Tensor
     """
 
     def __init__(

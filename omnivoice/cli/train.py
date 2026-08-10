@@ -37,6 +37,7 @@ from omnivoice.training.config import TrainingConfig
 from omnivoice.training.trainer import OmniTrainer
 
 def main():
+    # 【注意】：训练配置，权重路径，数据配置
     parser = argparse.ArgumentParser(description="OmniVoice Training Entry Point") # omnivoice 训练入口
     parser.add_argument(
         "--train_config", type=str, required=True, help="Path to config JSON" # 训练配置
@@ -50,21 +51,22 @@ def main():
     args = parser.parse_args()
 
     # 1. Load Configuration
-    config = TrainingConfig.from_json(args.train_config)
-    config.output_dir = args.output_dir
-    config.data_config = args.data_config
+    config = TrainingConfig.from_json(args.train_config) # 训练配置
+    config.output_dir = args.output_dir # 权重
+    config.data_config = args.data_config # 训练数据
 
     # 2. Build Components
+    # 【重要】构建模型和 tokenizer，都主要来自于 Qwen3-0.6B 模型
     model, tokenizer = build_model_and_tokenizer(config)
     train_loader, eval_loader = build_dataloaders(config, tokenizer)
 
     # 3. Initialize Trainer and Start
     trainer = OmniTrainer(
-        model=model,
-        config=config,
-        train_dataloader=train_loader,
-        eval_dataloader=eval_loader,
-        tokenizer=tokenizer,
+        model=model, # Qwen3-0.6B 模型
+        config=config, # 训练配置
+        train_dataloader=train_loader, # 训练数据
+        eval_dataloader=eval_loader, # 验证数据
+        tokenizer=tokenizer, # 文本 tokenizer
     )
     trainer.train()
 
