@@ -173,7 +173,7 @@ def load_checkpoint(accelerator: Accelerator, checkpoint_path: str):
 
     # Try to infer step
     try:
-        clean_path = os.path.normpath(checkpoint_path)
+        clean_path = os.path.normpath(checkpoint_path) # normpath 是 normalize path 的缩写，用于规范化路径
         step = int(os.path.basename(clean_path).split("-")[-1])
         return step
     except ValueError:

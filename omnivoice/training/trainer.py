@@ -84,6 +84,25 @@ class OmniTrainer:
         optimizer: Optional[torch.optim.Optimizer] = None,
         lr_scheduler: Optional[Any] = None,
     ):
+        """
+        Args:
+            model: 要训练的模型，核心方法有：
+                -  model(**batch)：实际通过 __call__() 调用 OmniVoice.forward()
+                - .parameters()：获取模型参数：parameter.data 获取模型权重；parameter.grad获取梯度
+                - .train()：将模型设置为训练模式
+                - .eval()：将模型设置为评估模式
+            config: 训练配置
+
+            【注意】数据集加载
+            train_dataloader: 训练数据集加载器
+            eval_dataloader: 模型验证集的 DataLoader
+            tokenizer: 分词器
+            optimizer: 优化器，
+                - .step() 根据梯度更新模型参数
+                - .zero_grad() 清空梯度
+            lr_scheduler: 学习率调度器
+        """
+
         # 训练配置
         self.config = config
         # 要训练的模型？
@@ -101,6 +120,7 @@ class OmniTrainer:
         # 2. Setup Optimizer & Scheduler if not provided
         #   设置训练时候的核心组件: 优化器和学习率调度器
         if optimizer is None:
+            # 优化器 通过 self.model.parameters()获取并绑定模型参数
             self.optimizer, self.lr_scheduler = self.create_optimizer_and_scheduler()
         else:
             self.optimizer = optimizer
@@ -116,8 +136,8 @@ class OmniTrainer:
         # 元组解包：把 prepare() 返回的 3 个对象依次赋给左侧 3 个变量，数量必须严格匹配。
         (self.model, self.optimizer, self.lr_scheduler,) = self.accelerator.prepare(
             self.model,
-            self.optimizer,
-            self.lr_scheduler,
+            self.optimizer, # 绑定了 model.Parameters() 的优化器
+            self.lr_scheduler, # 绑定了 optimizer
         )
 
         self.global_step = 0
@@ -130,11 +150,13 @@ class OmniTrainer:
         """
         # TF32 setup
         if getattr(self.config, "allow_tf32", False):
+            # matmul 是 matrix multiplication 的缩写
+            # set_float32_matmul_precision 是指执行 float32 矩阵乘法时，GPU 内部计算使用多高的精度
             torch.set_float32_matmul_precision("high")
 
-        # Init handlers
-        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False)
-        init_kwargs = InitProcessGroupKwargs(timeout=timedelta(minutes=60))
+        # Init handlers Accelerate 的分布式训练配置
+        ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=False) # 默认所有模型参数都会参与本次训练
+        init_kwargs = InitProcessGroupKwargs(timeout=timedelta(minutes=60)) # 设置分布式进程通信超时时间为 60 分钟
 
         # DeepSpeed setup
         deepspeed_plugin = None
@@ -150,13 +172,21 @@ class OmniTrainer:
             )
 
         accelerator = Accelerator(
+            # 累积多少个 batch 的梯度后更新一次权重
             gradient_accumulation_steps=self.config.gradient_accumulation_steps,
+            # 混合精度类型，例如 bf16、fp16 或 no
             mixed_precision=self.config.mixed_precision,
+            # 使用 TensorBoard 记录训练指标
             log_with="tensorboard",
+            # TensorBoard 日志等输出文件的保存目录
             project_dir=self.config.output_dir,
+            # 不由 Accelerate 自动推进调度器，训练循环中手动调用 lr_scheduler.step()
             step_scheduler_with_optimizer=False,
+            # 传入 DDP 和分布式进程通信配置
             kwargs_handlers=[ddp_kwargs, init_kwargs],
+            # DeepSpeed 配置，未启用时为 None
             deepspeed_plugin=deepspeed_plugin,
+            # 不让 Accelerate 自动把一个 batch 再拆分给多张 GPU
             split_batches=False,
         )
 
@@ -195,9 +225,11 @@ class OmniTrainer:
                 Learning Rate Scheduler: 一种调度器，用于调整学习率
         """
         optimizer = torch.optim.AdamW(
-            self.model.parameters(),
-            lr=self.config.learning_rate,
-            weight_decay=self.config.weight_decay,
+            self.model.parameters(), # 权重，【重要】获取模型参数，优化器在这里跟模型参数绑定
+            # AdamW 的基础/峰值学习率；训练中 lr_scheduler 会动态调整实际学习率
+            # SGD 的基础理解：新权重 = 旧权重 - 学习率 × 梯度。SGD 随机梯度下降（Stochastic Gradient Descent）
+            lr=self.config.learning_rate, 
+            weight_decay=self.config.weight_decay, # todo
         )
 
         if self.config.warmup_type == "ratio":
@@ -216,10 +248,11 @@ class OmniTrainer:
                 num_warmup_steps=final_warmup_steps,
                 num_training_steps=self.config.steps,
             )
-        return optimizer, lr_scheduler
+        return optimizer, lr_scheduler # TODO lr_scheduler 是啥？
 
     def save_checkpoint(self, step):
         """Wrapper for engine save_checkpoint."""
+        # 保存 checkpoint
         engine_save_checkpoint(
             self.accelerator,
             self.model,
@@ -228,7 +261,7 @@ class OmniTrainer:
             step,
             self.config.keep_last_n_checkpoints,
         )
-        # Save config copy for convenience
+        # Save config copy for convenience 保存配置文件
         if self.accelerator.is_main_process and hasattr(self.config, "save_to_json"):
             checkpoint_dir = os.path.join(self.config.output_dir, f"checkpoint-{step}")
             self.config.save_to_json(os.path.join(checkpoint_dir, "train_config.json"))
@@ -241,7 +274,9 @@ class OmniTrainer:
         return step
 
     def evaluate(self):
-        """Evaluation loop."""
+        """Evaluation loop.
+        
+        """
         # 如果没有验证集则直接返回
         if self.eval_dataloader is None:
             return {}
@@ -250,64 +285,101 @@ class OmniTrainer:
         self.model.eval()
         logger.info(f"Running evaluation at step {self.global_step}...")
 
-        # 在当前设备创建值为 0 的标量 Tensor，用于累加各验证 batch 的 loss。
+        # 初始化空值、累加验证集的 loss
         local_loss_sum = torch.tensor(0.0, device=self.accelerator.device)
         eval_count = 0
 
+        # no_grad 表示不自动求梯度，不会记录和计算梯度，减少显存占用、提升推理速度
         with torch.no_grad():
             for eval_batch in self.eval_dataloader: # 遍历验证集的 DataLoader
-                eval_batch = _to_device(eval_batch, self.accelerator.device) # 数据准备，方便模型计算
+                eval_batch = _to_device(eval_batch, self.accelerator.device)
+                # 调用链路：self.model(**eval_batch) -> nn.Module.__call__() -> OmniVoice.forward()
+                # 其中， model 是一个可调用的 nn.Module 对象、所以会调用到 nn.Module.__call__() 方法
+                # 结果类型是 OmniVoiceModelOutput
                 outputs = self.model(**eval_batch)
-                local_loss_sum += outputs.loss.detach()
-                eval_count += 1
+                # 获取 loss 并累加（另外，除了 loss，还有 logits 是模型的输出
+                #【重要】loss 是一个标量 tensor，比如 tensor(2.35)
+                # detach() 返回结果的 形状、值、类型都和 loss 相同，修改了计算图和梯度相关的信息
+                local_loss_sum += outputs.loss.detach() 
+                eval_count += 1 # 累加验证集的样本数量
 
         if eval_count > 0:
-            local_mean = local_loss_sum / eval_count
+            local_mean = local_loss_sum / eval_count # 计算平均损失；张量除法、每个元素都和 eval_count 相除
         else:
-            local_mean = torch.tensor(0.0, device=self.accelerator.device)
+            local_mean = torch.tensor(0.0, device=self.accelerator.device) # 防御代码，忽略
 
-        all_means = self.accelerator.gather(local_mean)
+        # 每个gpu都有自己的 mean，这里是聚合所有gpu的mean：结果是一个 tensor，形状是 (num_gpus, )【注意】
+        all_means = self.accelerator.gather(local_mean) 
+        # 计算所有gpu的mean的平均值为最终的 loss
+        # .mean() 是 tensor 的 方法，计算所有元素的平均值，结果是张量标量
+        # .item() 是 tensor 的 方法，将张量标量转换成 python 数值， .item() 只能用只有一个元素的 tensor
         final_eval_loss = all_means.mean().item()
-
+        
         eval_metrics = {"eval/loss": final_eval_loss}
-        self.accelerator.log(eval_metrics, step=self.global_step)
+        self.accelerator.log(eval_metrics, step=self.global_step) # 仅做记录
         logger.info(f"Eval Loss: {final_eval_loss:.4f}")
 
-        self.accelerator.wait_for_everyone()
-        self.model.train()
+        self.accelerator.wait_for_everyone() # 等待所有gpu都完成评估
+        self.model.train() # 切换回训练模式
         return eval_metrics
 
     def train(self):
-        """Main training loop."""
+        """Main training loop.
+        【重要】核心训练代码
+
+        基本流程:
+          step 1: 准备训练状态 (可选断点续训、设置 epoch、日志、切换训练模式)。
+          step 2: 循环取 batch, 数据取完则进入下一个 epoch。
+          step 3: forward 得到 loss, backward 计算/累积梯度。
+          step 4: 累积到位后裁剪梯度、更新权重和学习率, global_step + 1。
+          step 5: 按配置间隔记录日志、跑验证、保存 checkpoint。
+          step 6: 达到 config.steps 后保存最终 checkpoint 并收尾。
+        """
         logger.info("Starting Training Loop...")
 
+        # ===== step 1: 准备训练状态 =====
         # Resume if configured
-        # 从 checkpoint 恢复训练
+        # 加载模型权重
         if self.config.resume_from_checkpoint:
             self.load_checkpoint(self.config.resume_from_checkpoint) # 从指定路径加载 checkpoint
 
         # Handle IterableDataset Epochs
+        # 告诉 dataset 当前是第几轮, 让它据此调整随机种子和数据划分
         if hasattr(self.train_dataloader.dataset, "set_epoch"):
+            """
+            1 次 train() 调用
+            └── 多个 epoch（数据集遍历轮数）
+                └── 多个 batch
+                    └── 多个 step（权重更新次数）
+            """
             self.train_dataloader.dataset.set_epoch(self.epoch)
 
         # Logger
         train_logger = TrainLogger(
-            self.accelerator, self.config.steps, self.config.logging_steps
+            self.accelerator, 
+            self.config.steps, 
+            self.config.logging_steps
         )
         train_logger.start(self.global_step)
 
+        # 切换到训练模式，对应 model.eval() 模式、进行推理和评估
         self.model.train()
+        # 创建 dataloader 迭代器
+        # 把可迭代对象转成迭代器，方便遍历。另，实现  def __iter__(self) 的类的对象就是一个可迭代对象
         train_iterator = iter(self.train_dataloader)
 
         logging_start_time = time.time()
         logging_start_step = self.global_step
-        tr_loss = torch.tensor(0.0).to(self.accelerator.device)
+        tr_loss = torch.tensor(0.0).to(self.accelerator.device) # 创建一个标量张量 0.0
         logging_loss_scalar = 0.0
 
-        while self.global_step < self.config.steps:
+        # ===== step 2: 主循环, 按 global_step 控制训练何时结束 =====
+        while self.global_step < self.config.steps: # 如果当前已经训练的步数小于配置的训练步数
             try:
+                # 遍历迭代器，获取一个 batch 的数据、batch_size 大小是按照 batch_tokens 获取的
                 batch = next(train_iterator)
             except StopIteration:
+                # 当前 epoch 数据取完: epoch + 1, 重建迭代器继续训练
                 self.epoch += 1
                 logger.info(f"Epoch {self.epoch} starting. Resetting dataloader...")
                 if hasattr(self.train_dataloader.dataset, "set_epoch"):
@@ -318,34 +390,47 @@ class OmniTrainer:
 
             batch = _to_device(batch, self.accelerator.device)
 
-            with self.accelerator.accumulate(self.model):
-                outputs = self.model(**batch)
-                loss = outputs.loss
-                tr_loss += loss.detach()
+            # ===== step 3: forward 求 loss, backward 计算/累积梯度 =====
+            # ？ accumulate() 是 Accelerate 提供的梯度累积上下文管理器，负责本次是否该真正同步梯度并更新权重
+            with self.accelerator.accumulate(self.model): 
+                outputs = self.model(**batch) # 使用当前权重进行一次 forward
+                loss = outputs.loss # 获取 loss
+                tr_loss += loss.detach() # 累加 loss，tr 是 train 的缩写
+                # 【重要】
+                # 计算如何调整参数来优化权重：写入 param.grad
+                # Optimizer: optimizer.step() 用 grad 更新权重 -> optimizer.zero_grad() 清空 grad
                 self.accelerator.backward(loss)
 
+                # ===== step 4: 梯度累积到位后才真正更新权重 =====
+                # 判断 本次是否该同步梯度并更新权重，所谓梯度就是 accelerator.backward(loss) 中累计的梯度
+                # 参数更新量 = 学习率 × 梯度，所以梯度过大的时候 optimizer 调整的参数量可能过大、导致loss波动过大
                 if self.accelerator.sync_gradients:
-                    # Clipping
+                    # Clipping 梯度裁剪: 防止梯度过大导致训练不稳定
                     grad_norm = 0.0
-                    if self.config.max_grad_norm > 0:
-                        grad_norm = self.accelerator.clip_grad_norm_(
-                            self.model.parameters(), self.config.max_grad_norm
+                    if self.config.max_grad_norm > 0: # 是否配置了梯度裁剪
+                        grad_norm = self.accelerator.clip_grad_norm_( # 裁剪梯度，norm 是 范数 的英文
+                            self.model.parameters(), # 梯度保存模型参数中： parameter.grad  → backward() 计算出的梯度； parameter.data  → 当前权重
+                            self.config.max_grad_norm # ？梯度上限？
                         )
-                        grad_norm = (
+                        grad_norm = ( # grad_norm 已经是一个标量张量了，这里是将标量张量转换成 python数值
                             grad_norm.item() if grad_norm is not None else 0.0
                         )
 
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
-                    self.optimizer.zero_grad()
-                    self.global_step += 1
+                    self.optimizer.step()      # 更新模型权重，基本逻辑是 新权重 = 旧权重 - 学习率 × 梯度
+                    self.lr_scheduler.step()   # 更新学习率
+                    self.optimizer.zero_grad() # 清空本轮梯度
+                    self.global_step += 1      # 完成一次权重更新, 记为一个 step
 
+                    # ===== step 5: 按间隔记录日志 / 验证 / 保存 =====
                     # Logging
-                    current_lr = self.lr_scheduler.get_last_lr()[0]
+                    current_lr = self.lr_scheduler.get_last_lr()[0] # 获取最新计算出的学习率
                     train_logger.update(
-                        step=self.global_step, loss=loss.item(), lr=current_lr
+                        step=self.global_step, 
+                        loss=loss.item(), 
+                        lr=current_lr
                     )
 
+                    # 都是记录日志，可先不看
                     if self.global_step % self.config.logging_steps == 0:
                         elapsed = time.time() - logging_start_time
                         steps_per_sec = (
@@ -375,17 +460,24 @@ class OmniTrainer:
                         logging_start_step = self.global_step
 
                     # Evaluate
+                    # 到达评估间隔: 跑一遍验证集, 只统计 loss 不更新权重
                     if (
-                        self.eval_dataloader is not None
-                        and self.global_step % self.config.eval_steps == 0
+                        self.eval_dataloader is not None # 如果评测数据集不为空
+                        and self.global_step % self.config.eval_steps == 0 # 如果当前步数是评估间隔，eval_steps 是评估间隔步数
                     ):
+                        # 1. 仅仅是评估，并没有对训练流程产生印象，结果可一哦你过来参考：
+                        #   1.1 如果 loss 持续变小则说明训练结果更好了
+                        #   1.2 如果 loss 上升但是之前训练loss下降、说明训练过拟合
                         self.evaluate()
 
                     # Save
+                    # 【重要】到达保存间隔: 保存 checkpoint, 支持后续断点续训
                     if self.global_step % self.config.save_steps == 0:
                         self.save_checkpoint(self.global_step)
 
+        # ===== step 6: 训练结束, 保存最终 checkpoint 并收尾 =====
         # Final Save
         self.save_checkpoint(self.global_step)
         train_logger.close()
         self.accelerator.end_training()
+
