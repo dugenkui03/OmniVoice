@@ -74,6 +74,7 @@ class TrainingConfig:
 
     # Data
     batch_tokens: int = 8192
+    # 累积多少个 batch 计算出的梯度 Tensor更新一次权重
     gradient_accumulation_steps: int = 1
     num_workers: int = 8
 

@@ -274,8 +274,7 @@ class OmniTrainer:
         return step
 
     def evaluate(self):
-        """Evaluation loop.
-        
+        """Evaluation loop. 【注意】这个方法只做评估和记录，不影响训练进程
         """
         # 如果没有验证集则直接返回
         if self.eval_dataloader is None:
@@ -339,22 +338,14 @@ class OmniTrainer:
         logger.info("Starting Training Loop...")
 
         # ===== step 1: 准备训练状态 =====
-        # Resume if configured
-        # 加载模型权重
+        # Resume if configured 从指定路径加载 checkpoint
         if self.config.resume_from_checkpoint:
-            self.load_checkpoint(self.config.resume_from_checkpoint) # 从指定路径加载 checkpoint
+            self.load_checkpoint(self.config.resume_from_checkpoint)
 
-        # Handle IterableDataset Epochs
-        # 告诉 dataset 当前是第几轮, 让它据此调整随机种子和数据划分
-        if hasattr(self.train_dataloader.dataset, "set_epoch"):
-            """
-            1 次 train() 调用
-            └── 多个 epoch（数据集遍历轮数）
-                └── 多个 batch
-                    └── 多个 step（权重更新次数）
-            """
+        # Handle IterableDataset Epochs 【重要】每个 epoch 都打乱数据获取顺序
+        if hasattr(self.train_dataloader.dataset, "set_epoch"): # 如果 dataset 有 set_epoch 方法
+            # 更新 epoch 值，这个值影响数据获取的随机性、不同的 epoch 影响数据获取顺序
             self.train_dataloader.dataset.set_epoch(self.epoch)
-
         # Logger
         train_logger = TrainLogger(
             self.accelerator, 
@@ -371,56 +362,78 @@ class OmniTrainer:
 
         logging_start_time = time.time()
         logging_start_step = self.global_step
-        tr_loss = torch.tensor(0.0).to(self.accelerator.device) # 创建一个标量张量 0.0
+
+        #【重要】
+        # 创建一个标量张量 0.0 记录训练 loss，形状是 标量张量
+        tr_loss = torch.tensor(0.0).to(self.accelerator.device)
         logging_loss_scalar = 0.0
 
         # ===== step 2: 主循环, 按 global_step 控制训练何时结束 =====
-        while self.global_step < self.config.steps: # 如果当前已经训练的步数小于配置的训练步数
+        """
+        1. 迭代并获取数据，也有数据打乱逻辑
+        2. forward() -> 获取 loss -> backward() 计算梯度 -如果
+        """
+
+        #【重要】训练程度/进程是通过配置的 steps 数量控制的
+        # 比如 config.steps = 320、数据集有 100 个batch(1000个数据、batch_size 是10)、那么训练4个epoch后结束
+        while self.global_step < self.config.steps:
             try:
                 # 遍历迭代器，获取一个 batch 的数据、batch_size 大小是按照 batch_tokens 获取的
                 batch = next(train_iterator)
             except StopIteration:
-                # 当前 epoch 数据取完: epoch + 1, 重建迭代器继续训练
+                # 【重要】这里并不是 异常情况，而是数据迭代完了
                 self.epoch += 1
                 logger.info(f"Epoch {self.epoch} starting. Resetting dataloader...")
                 if hasattr(self.train_dataloader.dataset, "set_epoch"):
+                    # 【重要】重新设置 epoch、打乱数据获取顺序
                     self.train_dataloader.dataset.set_epoch(self.epoch)
-
+                # 【重要】重新创建迭代器
                 train_iterator = iter(self.train_dataloader)
-                batch = next(train_iterator)
+                batch = next(train_iterator) # 获取下一个 batch 的数据
 
             batch = _to_device(batch, self.accelerator.device)
 
             # ===== step 3: forward 求 loss, backward 计算/累积梯度 =====
-            # ？ accumulate() 是 Accelerate 提供的梯度累积上下文管理器，负责本次是否该真正同步梯度并更新权重
             with self.accelerator.accumulate(self.model): 
-                outputs = self.model(**batch) # 使用当前权重进行一次 forward
-                loss = outputs.loss # 获取 loss
-                tr_loss += loss.detach() # 累加 loss，tr 是 train 的缩写
+                # 使用当前权重进行一次 forward
+                outputs = self.model(**batch)
+                # 获取 loss
+                loss = outputs.loss
+                tr_loss += loss.detach()
                 # 【重要】
                 # 计算如何调整参数来优化权重：写入 param.grad
                 # Optimizer: optimizer.step() 用 grad 更新权重 -> optimizer.zero_grad() 清空 grad
                 self.accelerator.backward(loss)
 
                 # ===== step 4: 梯度累积到位后才真正更新权重 =====
-                # 判断 本次是否该同步梯度并更新权重，所谓梯度就是 accelerator.backward(loss) 中累计的梯度
-                # 参数更新量 = 学习率 × 梯度，所以梯度过大的时候 optimizer 调整的参数量可能过大、导致loss波动过大
+                # sync_gradients 是判断多少个batch进行一次权重更新
                 if self.accelerator.sync_gradients:
-                    # Clipping 梯度裁剪: 防止梯度过大导致训练不稳定
+                    #【注释】梯度裁剪说明
+                    # 是否配置了梯度裁剪，裁剪是防止梯度过大导致训练不稳定
+                    # 参数更新量 = 学习率 × 梯度，所以梯度过大的时候 optimizer 调整的参数量可能过大、导致loss波动过大
                     grad_norm = 0.0
-                    if self.config.max_grad_norm > 0: # 是否配置了梯度裁剪
+                    if self.config.max_grad_norm > 0:
+                        # 【重要】如何进行梯度裁剪：返回的结果是裁剪前梯度范数
                         grad_norm = self.accelerator.clip_grad_norm_( # 裁剪梯度，norm 是 范数 的英文
-                            self.model.parameters(), # 梯度保存模型参数中： parameter.grad  → backward() 计算出的梯度； parameter.data  → 当前权重
-                            self.config.max_grad_norm # ？梯度上限？
+                            # 梯度保存模型参数中： parameter.grad是backward() 计算出的梯度； parameter.data是当前权重
+                            self.model.parameters(),
+                            #【重要】裁剪规则：这个限制的是所有的梯度元素的 L2范数，如果超过则所有梯度元素按照相同比例进行缩放
+                            self.config.max_grad_norm
                         )
-                        grad_norm = ( # grad_norm 已经是一个标量张量了，这里是将标量张量转换成 python数值
+                        grad_norm = (
                             grad_norm.item() if grad_norm is not None else 0.0
                         )
 
-                    self.optimizer.step()      # 更新模型权重，基本逻辑是 新权重 = 旧权重 - 学习率 × 梯度
-                    self.lr_scheduler.step()   # 更新学习率
-                    self.optimizer.zero_grad() # 清空本轮梯度
-                    self.global_step += 1      # 完成一次权重更新, 记为一个 step
+                    # 更新模型权重，基本逻辑是 新权重 = 旧权重 - 学习率 × 梯度
+                    # 权重参数更新程度 与 【学习率 × 梯度】 正相关
+                    self.optimizer.step()
+                    # 更新学习率，这个值是先大后小
+                    self.lr_scheduler.step()
+                    # 清空本轮梯度
+                    self.optimizer.zero_grad()
+                    # 完成一个 step 的处理，递增 step，global_step 来判断训练啥时候结束
+                    # 【注意】这里的 step 处理可能累加了多个 batch 数据的 forward/loss/backward/.step 计算
+                    self.global_step += 1
 
                     # ===== step 5: 按间隔记录日志 / 验证 / 保存 =====
                     # Logging
