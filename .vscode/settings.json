@@ -1,0 +1,29 @@
+{
+    // Python 解释器：uv sync 之后会在项目根生成 .venv，这里直接指向它
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+    // 让 Pylance 把项目根目录加入搜索路径，这样 `import omnivoice.xxx` 能正确解析、可跳转
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}"
+    ],
+
+    // 让 Pylance 索引整个 workspace（默认只索引打开的文件，会导致跨文件跳转失败）
+    "python.analysis.indexing": true,
+    "python.analysis.userFileIndexingLimit": -1,
+
+    // 自动发现 venv，避免手动选解释器
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.useLibraryCodeForTypes": true,
+
+    // 类型检查模式：basic 比 strict 宽松，不会到处飘红，又能保证跳转/补全工作
+    "python.analysis.typeCheckingMode": "basic",
+
+    // 关闭对 .venv 的搜索/监视，提升性能
+    "files.watcherExclude": {
+        "**/.venv/**": true
+    },
+    "search.exclude": {
+        "**/.venv": true,
+        "**/uv.lock": true
+    }
+}

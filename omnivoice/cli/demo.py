@@ -500,31 +500,45 @@ by Xiaomi AI Lab Next-gen Kaldi team.
 
 
 def main(argv=None) -> int:
+    # 定义日志
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(name)s %(levelname)s: %(message)s",
     )
+    # 命令行参数解析器构造函数，用于解析命令行参数
     parser = build_parser()
+    # 解析命令行参数
     args = parser.parse_args(argv)
 
+    # 获取最佳可用设备：CUDA > XPU > MPS > CPU.
     device = args.device or get_best_device()
 
     checkpoint = args.model
+    # 如果模型 checkpoint 或 HuggingFace 仓库名不存在，则打印帮助信息并返回 0
     if not checkpoint:
         parser.print_help()
         return 0
     logging.info(f"Loading model from {checkpoint}, device={device} ...")
+    # 加载模型: load_asr=True 时一并加载 Whisper, 用于在 demo 里
+    # 自动转写用户上传的参考音频 (即使没有填 ref_text 也能跑 voice clone).
     model = OmniVoice.from_pretrained(
+        # 模型 checkpoint 或 HuggingFace 仓库名; 示例: "k2-fsa/OmniVoice" 或 "./checkpoints/omnivoice".
         checkpoint,
+        # 模型加载到哪个设备; 示例: "cuda" / "mps" / "cpu".
         device_map=device,
+        # 权重推理精度; 示例: torch.float16 可减少显存占用.
         dtype=torch.float16,
+        # 是否加载 ASR 模型自动识别参考音频文本; 示例: --no-asr 时这里为 False.
         load_asr=not args.no_asr,
+        # ASR 模型名或本地路径; 示例: "openai/whisper-large-v3-turbo".
         asr_model_name=args.asr_model,
     )
     print("Model loaded.")
 
+    # 构建 Gradio UI, 内部把 model.generate 包成回调
     demo = build_demo(model, checkpoint)
 
+    # queue() 串行化请求, 避免并发时多个生成任务抢同一份模型/显存
     demo.queue().launch(
         server_name=args.ip,
         server_port=args.port,

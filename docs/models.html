@@ -1,0 +1,1791 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OmniVoice Models 工程科普</title>
+  <style type="text/css">
+    :root {
+      color-scheme: light;
+      --ink: #18202f;
+      --muted: #637084;
+      --line: #d9e0eb;
+      --soft: #f5f7fb;
+      --panel: #ffffff;
+      --accent: #1d7a85;
+      --accent-2: #8758a8;
+      --warm: #ad6437;
+      --code: #101828;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #fbfcff;
+      font: 16px/1.72 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(29, 122, 133, 0.25);
+    }
+
+    a:hover {
+      border-bottom-color: currentColor;
+    }
+
+    .hero {
+      border-bottom: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(29, 122, 133, 0.12), transparent 42%),
+        linear-gradient(315deg, rgba(173, 100, 55, 0.13), transparent 45%),
+        #f7f9fd;
+    }
+
+    .wrap {
+      width: min(1120px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .hero .wrap {
+      padding: 64px 0 42px;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      max-width: 900px;
+      margin: 0;
+      font-size: clamp(34px, 5vw, 58px);
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 850px;
+      margin: 20px 0 0;
+      color: var(--muted);
+      font-size: 19px;
+    }
+
+    .content {
+      padding: 38px 0 72px;
+    }
+
+    .article-section {
+      margin: 44px 0;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 28px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 28px 0 10px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 10px 0;
+    }
+
+    .lead {
+      font-size: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin: 18px 0;
+    }
+
+    .card {
+      min-height: 142px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 7px;
+      font-size: 17px;
+    }
+
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .note {
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent);
+      background: #edf7f8;
+      color: #21474d;
+    }
+
+    .diagram {
+      margin: 20px 0;
+      padding: 18px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .model-map {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 34px minmax(220px, 1fr) 34px minmax(220px, 1fr);
+      gap: 12px;
+      min-width: 760px;
+      align-items: stretch;
+    }
+
+    .map-card {
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 24px rgba(36, 48, 68, 0.08);
+    }
+
+    .map-card h3 {
+      margin-top: 0;
+    }
+
+    .map-card ul {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+
+    .map-arrow {
+      display: grid;
+      place-items: center;
+      color: #8290a3;
+      font-size: 26px;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 18px 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th,
+    td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--soft);
+      font-size: 14px;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code,
+    pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", monospace;
+    }
+
+    code {
+      padding: 0.16em 0.35em;
+      border-radius: 5px;
+      background: #eef2f7;
+      color: var(--code);
+      font-size: 0.92em;
+    }
+
+    pre {
+      margin: 16px 0;
+      padding: 16px;
+      overflow-x: auto;
+      border-radius: 8px;
+      background: #121826;
+      color: #f7f9fc;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    pre code {
+      padding: 0;
+      background: transparent;
+      color: inherit;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .pill {
+      display: inline-block;
+      margin: 0 6px 8px 0;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .mermaid {
+      margin: 16px 0;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .chapter-figure {
+      margin: 22px 0 28px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      overflow-x: auto;
+    }
+
+    .chapter-figure img {
+      display: block;
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+    }
+
+    .signal-infographic {
+      margin: 22px 0 28px;
+      padding: 18px;
+      border: 2px solid #2e6cc9;
+      border-radius: 8px;
+      background: #ffffff;
+      box-shadow: 0 16px 40px rgba(24, 32, 47, 0.1);
+      color: #111a42;
+    }
+
+    .signal-title {
+      margin: 0;
+      text-align: center;
+      color: #0b1550;
+      font-size: 30px;
+      line-height: 1.22;
+      font-weight: 850;
+    }
+
+    .signal-subtitle {
+      margin: 6px 0 16px;
+      text-align: center;
+      color: #56616f;
+      font-size: 16px;
+      font-weight: 650;
+    }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1.35fr 1fr;
+      gap: 10px;
+    }
+
+    .signal-panel {
+      min-width: 0;
+      padding: 12px;
+      border: 1.5px solid #2e6cc9;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #fff, #f8fbff);
+    }
+
+    .signal-panel.teal {
+      border-color: #128f91;
+    }
+
+    .signal-panel.wide {
+      grid-column: span 2;
+    }
+
+    .panel-head {
+      display: inline-block;
+      margin: -2px 0 12px;
+      padding: 5px 12px;
+      border-radius: 5px;
+      background: linear-gradient(90deg, #1e64c8, #2d78e4);
+      color: #fff;
+      font-weight: 800;
+      font-size: 16px;
+    }
+
+    .signal-panel.teal .panel-head {
+      background: linear-gradient(90deg, #128f91, #21a7a0);
+    }
+
+    .mini-wave {
+      height: 44px;
+      margin: 6px 0 8px;
+      background:
+        radial-gradient(ellipse at 18% 50%, transparent 18px, #2e6cc9 19px, transparent 20px),
+        repeating-linear-gradient(90deg, transparent 0 12px, rgba(46, 108, 201, 0.18) 12px 13px);
+      clip-path: polygon(0 50%, 4% 40%, 8% 55%, 12% 28%, 16% 62%, 20% 34%, 24% 70%, 28% 42%, 32% 58%, 36% 26%, 40% 52%, 44% 44%, 48% 66%, 52% 35%, 56% 56%, 60% 47%, 64% 62%, 68% 35%, 72% 53%, 76% 44%, 80% 62%, 84% 50%, 88% 57%, 92% 46%, 96% 51%, 100% 50%);
+    }
+
+    .formula {
+      margin: 0 0 10px;
+      text-align: center;
+      color: #263149;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 18px;
+    }
+
+    .reason-list,
+    .control-list,
+    .reminder-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .reason-list li,
+    .control-list li,
+    .reminder-list li {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 8px;
+      align-items: center;
+      min-height: 43px;
+      padding: 8px 10px;
+      border: 1px solid #91b5e9;
+      border-radius: 6px;
+      background: #fff;
+      color: #202a3d;
+      font-size: 13px;
+      line-height: 1.35;
+    }
+
+    .reason-list .icon,
+    .control-list .icon,
+    .reminder-list .icon {
+      display: grid;
+      place-items: center;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #eaf2ff;
+      color: #1f64c8;
+      font-weight: 850;
+      font-size: 17px;
+    }
+
+    .pipeline-strip,
+    .codec-strip {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(78px, 1fr);
+      gap: 6px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #b7c8df;
+      border-radius: 7px;
+      background: #f9fbff;
+      font-size: 12px;
+      font-weight: 750;
+      text-align: center;
+    }
+
+    .pipeline-strip span,
+    .codec-strip span {
+      padding: 7px 6px;
+      border: 1px solid #9fc6b5;
+      border-radius: 5px;
+      background: #fff;
+    }
+
+    .pipeline-strip b,
+    .codec-strip b {
+      color: #1d65c6;
+    }
+
+    .tf-flow {
+      display: grid;
+      grid-template-columns: 0.75fr 0.65fr 0.18fr 0.9fr 0.18fr 0.9fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .tf-item {
+      min-height: 178px;
+      padding: 8px;
+      border-radius: 7px;
+      background: #fff;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .tf-arrow {
+      color: #233452;
+      font-size: 24px;
+      font-weight: 900;
+      text-align: center;
+    }
+
+    .frames {
+      height: 82px;
+      margin: 18px auto 10px;
+      width: 92px;
+      background:
+        linear-gradient(90deg, transparent 0 17px, rgba(46,108,201,0.22) 17px 32px, transparent 32px 47px),
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.6) 0 20px, rgba(46,108,201,0.18) 20px 22px);
+      border: 1px solid #7897bd;
+    }
+
+    .spectrogram,
+    .melmap {
+      height: 112px;
+      margin: 8px auto 10px;
+      width: 120px;
+      border: 1px solid #263149;
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 7px, transparent 7px 12px),
+        repeating-linear-gradient(0deg, rgba(255,255,255,0.08) 0 5px, transparent 5px 11px),
+        linear-gradient(135deg, #09062d, #541c91 28%, #d84e68 58%, #ffd45c);
+    }
+
+    .melmap {
+      background:
+        repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 8px, transparent 8px 13px),
+        linear-gradient(135deg, #092137, #0e7a7d 36%, #6ec17a 68%, #f6db57);
+    }
+
+    .tf-note {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .tf-note span {
+      padding: 8px;
+      border: 1px solid #91b5e9;
+      border-radius: 6px;
+      background: #f6f9ff;
+      color: #2362bd;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .control-list li {
+      border-color: #98d0ce;
+    }
+
+    .control-list .icon {
+      background: #e9f8f6;
+      color: #128f91;
+    }
+
+    .token-row {
+      display: grid;
+      grid-template-columns: 68px repeat(9, 1fr);
+      gap: 3px;
+      align-items: center;
+      margin-top: 12px;
+      padding: 9px;
+      border: 1px dashed #b9c2cf;
+      border-radius: 6px;
+      background: #fff;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .token-row span {
+      padding: 4px 0;
+      border-radius: 4px;
+      background: #f1f5fa;
+    }
+
+    .duration-flow {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-top: 10px;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .duration-flow span {
+      padding: 8px 4px;
+      border: 1px solid #8bc4c0;
+      border-radius: 5px;
+      background: #f5fffd;
+      color: #0d7678;
+      font-weight: 800;
+    }
+
+    .codec-line {
+      display: grid;
+      grid-template-columns: 1fr 0.15fr 0.8fr 0.15fr 1fr 0.15fr 0.8fr 0.15fr 1fr;
+      gap: 6px;
+      align-items: center;
+      margin: 8px 0 12px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .codec-box {
+      min-height: 58px;
+      padding: 10px 6px;
+      border-radius: 6px;
+      background: #fff;
+      border: 1px solid #c4d4e8;
+    }
+
+    .tokens {
+      display: flex;
+      justify-content: center;
+      gap: 5px;
+      padding: 12px 0;
+    }
+
+    .tokens span {
+      display: block;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      background: #2fb485;
+    }
+
+    .tokens span:nth-child(2) { background: #6bc771; }
+    .tokens span:nth-child(3) { background: #f2c746; }
+    .tokens span:nth-child(4) { background: #f3973d; }
+    .tokens span:nth-child(5) { background: #ad70d6; }
+    .tokens span:nth-child(6) { background: #6b83e8; }
+
+    .compare-table {
+      width: 100%;
+      margin: 8px 0 0;
+      font-size: 13px;
+    }
+
+    .compare-table th {
+      background: #1f65bd;
+      color: #fff;
+      text-align: center;
+    }
+
+    .compare-table td {
+      padding: 8px;
+      text-align: center;
+    }
+
+    .mixed-box {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .mixed-core {
+      padding: 22px;
+      border: 1px solid #84c4c0;
+      border-radius: 8px;
+      background: #fff;
+      text-align: center;
+      font-weight: 850;
+      font-size: 17px;
+    }
+
+    .reminder-list li {
+      grid-template-columns: 34px 1fr;
+      border-color: #a8d5d2;
+    }
+
+    .reminder-list .icon {
+      background: #eaf8f7;
+      color: #138f91;
+    }
+
+    .bottom-legend {
+      display: grid;
+      grid-template-columns: 1.1fr repeat(7, 1fr);
+      gap: 8px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid #2e6cc9;
+      border-radius: 7px;
+      background: #f9fbff;
+      font-size: 12px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .bottom-legend span {
+      display: grid;
+      place-items: center;
+      min-height: 36px;
+      padding: 4px;
+      border-right: 1px solid #c5d3e4;
+    }
+
+    .bottom-legend span:last-child {
+      border-right: 0;
+    }
+
+    .history-infographic {
+      margin: 22px 0 28px;
+      padding: 18px;
+      border: 2px solid #2a67d8;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #ffffff, #f8fbff);
+      box-shadow: 0 16px 40px rgba(24, 32, 47, 0.1);
+      color: #101b46;
+    }
+
+    .history-title {
+      margin: 0;
+      color: #0b2b73;
+      text-align: center;
+      font-size: 34px;
+      line-height: 1.18;
+      font-weight: 900;
+    }
+
+    .history-subtitle {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      margin: 6px 0 18px;
+      color: #0c61c7;
+      font-size: 24px;
+      line-height: 1.25;
+      font-weight: 850;
+    }
+
+    .history-subtitle::before,
+    .history-subtitle::after {
+      content: "";
+      width: 180px;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, #6da1eb);
+    }
+
+    .history-subtitle::after {
+      background: linear-gradient(90deg, #6da1eb, transparent);
+    }
+
+    .era-row {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .era-card {
+      position: relative;
+      min-height: 316px;
+      padding: 12px 10px;
+      border: 1.5px solid #4f8ded;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: inset 0 0 0 1px rgba(79, 141, 237, 0.06);
+    }
+
+    .era-card::after {
+      content: "›";
+      position: absolute;
+      top: 118px;
+      right: -16px;
+      color: #1d6fe0;
+      font-size: 34px;
+      font-weight: 900;
+      line-height: 1;
+      z-index: 2;
+    }
+
+    .era-card:last-child::after {
+      display: none;
+    }
+
+    .era-head {
+      display: grid;
+      grid-template-columns: 28px 1fr;
+      gap: 8px;
+      align-items: center;
+      min-height: 40px;
+      font-weight: 850;
+      line-height: 1.18;
+    }
+
+    .era-num {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: #1267d8;
+      color: #fff;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .era-sub {
+      display: block;
+      color: #202b4b;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .era-icon {
+      display: grid;
+      place-items: center;
+      height: 70px;
+      margin: 8px 0;
+      color: #145fbf;
+      font-size: 38px;
+      font-weight: 900;
+    }
+
+    .era-flow {
+      min-height: 36px;
+      margin: 4px 0 8px;
+      color: #17213a;
+      font-size: 12px;
+      line-height: 1.35;
+      text-align: center;
+      font-weight: 750;
+    }
+
+    .era-list {
+      margin: 0;
+      padding: 9px 0 0;
+      border-top: 1px solid #c8dcfb;
+      list-style: none;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .era-list strong {
+      display: block;
+      margin-bottom: 3px;
+      color: #00875a;
+    }
+
+    .era-list.problems {
+      margin-top: 9px;
+    }
+
+    .era-list.problems strong {
+      color: #d11f1f;
+    }
+
+    .era-list li {
+      margin: 2px 0;
+      padding-left: 12px;
+      position: relative;
+    }
+
+    .era-list li::before {
+      content: "•";
+      position: absolute;
+      left: 0;
+      color: currentColor;
+      font-weight: 900;
+    }
+
+    .logic-band {
+      display: grid;
+      grid-template-columns: 0.65fr 1.55fr 1.65fr 2.1fr;
+      gap: 0;
+      align-items: center;
+      margin: 18px 0 14px;
+      color: #fff;
+      font-size: 22px;
+      font-weight: 850;
+      text-align: center;
+    }
+
+    .logic-label {
+      color: #0a3f9e;
+      background: #fff;
+      font-size: 19px;
+      line-height: 1.2;
+    }
+
+    .logic-step {
+      min-height: 68px;
+      display: grid;
+      place-items: center;
+      padding: 10px;
+      clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 50%, calc(100% - 28px) 100%, 0 100%, 28px 50%);
+      margin-left: -22px;
+      background: linear-gradient(90deg, #6fb5ff, #2771d9);
+    }
+
+    .logic-step:first-of-type {
+      margin-left: 0;
+      clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 50%, calc(100% - 28px) 100%, 0 100%);
+    }
+
+    .logic-step.teal {
+      background: linear-gradient(90deg, #36b8b8, #21a3a8);
+    }
+
+    .logic-step.deep {
+      background: linear-gradient(90deg, #156bdc, #0048b8);
+    }
+
+    .history-lower {
+      display: grid;
+      grid-template-columns: 1.3fr 1fr;
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    .today-box,
+    .history-points {
+      padding: 14px;
+      border: 1.5px solid #3a83e8;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .today-box h4,
+    .history-points h4 {
+      margin: 0 0 12px;
+      color: #0a4fb6;
+      text-align: center;
+      font-size: 21px;
+      line-height: 1.25;
+    }
+
+    .today-paths {
+      display: grid;
+      gap: 10px;
+    }
+
+    .path-row {
+      display: grid;
+      grid-template-columns: 0.9fr 0.24fr 1fr 0.24fr 1fr;
+      gap: 8px;
+      align-items: center;
+      color: #17213a;
+      font-size: 13px;
+      font-weight: 760;
+      text-align: center;
+    }
+
+    .path-row.long {
+      grid-template-columns: 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr 0.24fr 0.9fr;
+    }
+
+    .path-node {
+      min-height: 48px;
+      display: grid;
+      place-items: center;
+      padding: 7px;
+      border: 1px solid #5697e8;
+      border-radius: 7px;
+      background: #fafdff;
+    }
+
+    .path-arrow {
+      color: #0e64cf;
+      font-size: 22px;
+      font-weight: 900;
+    }
+
+    .history-points ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .history-points li {
+      display: grid;
+      grid-template-columns: 30px 1fr;
+      gap: 10px;
+      align-items: center;
+      min-height: 42px;
+      border-bottom: 1px dashed #b5cff5;
+      color: #18223d;
+      font-size: 16px;
+    }
+
+    .history-points li:last-child {
+      border-bottom: 0;
+    }
+
+    .check {
+      display: grid;
+      place-items: center;
+      width: 25px;
+      height: 25px;
+      border-radius: 50%;
+      background: #1778dc;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .footer {
+      margin-top: 56px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 820px) {
+      .grid,
+      .two-col,
+      .model-map,
+      .signal-grid,
+      .mixed-box,
+      .bottom-legend,
+      .era-row,
+      .logic-band,
+      .history-lower,
+      .path-row,
+      .path-row.long {
+        grid-template-columns: 1fr;
+      }
+
+      .signal-panel.wide {
+        grid-column: span 1;
+      }
+
+      .tf-flow,
+      .codec-line {
+        grid-template-columns: 1fr;
+      }
+
+      .tf-arrow {
+        transform: rotate(90deg);
+      }
+
+      .era-card::after {
+        display: none;
+      }
+
+      .logic-step,
+      .logic-step:first-of-type {
+        margin-left: 0;
+        clip-path: none;
+      }
+
+      .history-subtitle::before,
+      .history-subtitle::after {
+        width: 40px;
+      }
+
+      .model-map {
+        min-width: 0;
+      }
+
+      .map-arrow {
+        transform: rotate(90deg);
+      }
+
+      .wrap {
+        width: min(100% - 28px, 1120px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="wrap">
+      <p class="eyebrow">OmniVoice Engineering Notes</p>
+      <h1>从工程文件看懂 OmniVoice 的 models 组成</h1>
+      <p class="subtitle">
+        这篇文章不是论文解读，而是站在工程项目的角度，解释 OmniVoice 里“模型”到底由哪些文件、目录和运行部件组成，以及它们在推理、训练、评估时分别负责什么。
+      </p>
+    </div>
+  </div>
+
+  <div class="wrap content">
+    <div class="article-section">
+      <h2>先给一个总览</h2>
+      <p class="lead">
+        当前项目里的 models 可以分成三层：第一层是 <code>omnivoice/models/omnivoice.py</code> 里的模型代码，第二层是 <code>.models/OmniVoice</code> 里的已下载模型资产，第三层是训练、推理、评估模块对模型的调用方式。
+      </p>
+
+      <div class="diagram">
+        <div class="model-map">
+          <div class="map-card">
+            <h3>模型代码层</h3>
+            <p><code>omnivoice/models/omnivoice.py</code></p>
+            <ul>
+              <li>OmniVoiceConfig</li>
+              <li>OmniVoice</li>
+              <li>GenerationConfig / Task</li>
+              <li>generate / forward / decoding</li>
+            </ul>
+          </div>
+          <div class="map-arrow">→</div>
+          <div class="map-card">
+            <h3>模型资产层</h3>
+            <p><code>.models/OmniVoice</code></p>
+            <ul>
+              <li>model.safetensors</li>
+              <li>config.json</li>
+              <li>tokenizer.json</li>
+              <li>audio_tokenizer/*</li>
+            </ul>
+          </div>
+          <div class="map-arrow">→</div>
+          <div class="map-card">
+            <h3>调用编排层</h3>
+            <p><code>cli / training / data / eval</code></p>
+            <ul>
+              <li>omnivoice.cli.infer</li>
+              <li>omnivoice.cli.demo</li>
+              <li>training.builder / trainer</li>
+              <li>eval.models / speaker_similarity</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <strong>代码模型</strong>
+          <p>定义模型结构、输入怎么拼、音频 token 怎么预测、长文本怎么分块、参考音频怎么编码。</p>
+        </div>
+        <div class="card">
+          <strong>权重与配置</strong>
+          <p>从 Hugging Face 下载到本地的 <code>config.json</code>、<code>model.safetensors</code>、文本 tokenizer 和音频 tokenizer。</p>
+        </div>
+        <div class="card">
+          <strong>工程入口</strong>
+          <p>CLI、Gradio demo、训练 builder、数据 processor 和评估脚本都是围绕同一个模型类展开。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="article-section">
+      <h2>模型资产目录：.models/OmniVoice</h2>
+      <p>
+        本地 <code>.models/OmniVoice</code> 是 Hugging Face 模型仓库的一个快照。它不是源码包，而是运行推理时真正要加载的“模型资产包”。
+      </p>
+
+      <table summary="OmniVoice 本地模型资产目录中的主要文件及其工程作用">
+        <thead>
+          <tr>
+            <th>文件或目录</th>
+            <th>含义</th>
+            <th>在工程里的作用</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>model.safetensors</code></td>
+            <td>OmniVoice 主模型权重，当前本地约 2.3GB。</td>
+            <td>由 <code>OmniVoice.from_pretrained(...)</code> 加载，包含 LLM 主干、音频 embedding、音频预测头等参数。</td>
+          </tr>
+          <tr>
+            <td><code>config.json</code></td>
+            <td>模型结构配置。</td>
+            <td>声明 <code>model_type=omnivoice</code>、8 个音频 codebook、音频词表大小 1025、mask token id 1024，以及内部 LLM 是 Qwen3 风格配置。</td>
+          </tr>
+          <tr>
+            <td><code>tokenizer.json</code></td>
+            <td>文本 tokenizer 的主体文件。</td>
+            <td>把文本、语言标记、风格指令、特殊 token 转成文本 token id。</td>
+          </tr>
+          <tr>
+            <td><code>tokenizer_config.json</code></td>
+            <td>文本 tokenizer 的加载配置。</td>
+            <td>告诉 Transformers 如何恢复 tokenizer 行为。</td>
+          </tr>
+          <tr>
+            <td><code>chat_template.jinja</code></td>
+            <td>聊天模板文件。</td>
+            <td>继承自底层文本模型生态，OmniVoice 主流程里更重要的是自定义的语言、指令和文本边界 token。</td>
+          </tr>
+          <tr>
+            <td><code>audio_tokenizer/</code></td>
+            <td>HiggsAudioV2TokenizerModel 的独立资产目录。</td>
+            <td>负责把波形压缩成离散音频 token，也负责把生成出的音频 token 解码回波形。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        这里有一个容易混淆的点：OmniVoice 主模型不是直接输出 WAV 波形，而是先输出离散的音频 token；真正把 token 变回声音的是 <code>audio_tokenizer</code>。
+      </p>
+
+      <h3>资产文件里的子模块，是不是被合并成一个权重了？</h3>
+      <p>
+        可以把当前模型资产理解成“两包权重 + 若干配置文件”。第一包是 OmniVoice 主模型的 <code>model.safetensors</code>，第二包是 <code>audio_tokenizer/model.safetensors</code>。它们共同完成 TTS，但并没有全部揉成一个单独文件。
+      </p>
+
+      <div class="mermaid">
+flowchart LR
+    A["Qwen/Qwen3-0.6B 初始化来源"] --> B["OmniVoice 主模型训练"]
+    C["新增音频层: audio_embeddings / audio_heads"] --> B
+    B --> D[".models/OmniVoice/model.safetensors"]
+
+    E["HiggsAudioV2TokenizerModel"] --> F[".models/OmniVoice/audio_tokenizer/model.safetensors"]
+    D --> G["推理时加载 OmniVoice 主模型"]
+    F --> H["推理时加载 audio tokenizer"]
+    G --> I["生成音频 token"]
+    H --> J["音频 token 和 WAV 互转"]
+      </div>
+
+      <table summary="OmniVoice 模型资产中的子模块和权重文件关系">
+        <thead>
+          <tr>
+            <th>资产文件</th>
+            <th>里面看到的主要子模块</th>
+            <th>来源/角色</th>
+            <th>是否是合并文件</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>.models/OmniVoice/model.safetensors</code></td>
+            <td><code>llm.*</code>、<code>audio_embeddings.weight</code>、<code>audio_heads.weight</code>、<code>codebook_layer_offsets</code></td>
+            <td><code>llm.*</code> 是 Qwen3ForCausalLM 风格主干；音频 embedding 和 audio heads 是 OmniVoice 为语音 token 任务增加的层。</td>
+            <td>是 OmniVoice 主模型的一个 <code>state_dict</code> 文件。它把主模型内部各层参数保存在同一个 safetensors 文件里，但不包含独立的 audio tokenizer 权重。</td>
+          </tr>
+          <tr>
+            <td><code>.models/OmniVoice/audio_tokenizer/model.safetensors</code></td>
+            <td><code>semantic_model.*</code>、<code>acoustic_encoder.*</code>、<code>acoustic_decoder.*</code>、<code>quantizer.*</code></td>
+            <td>这是 HiggsAudioV2TokenizerModel，内部又包含语义模型、声学编码器/解码器和量化器，负责 WAV 和音频 token 之间互转。</td>
+            <td>是另一个独立模型的权重文件。推理时由 <code>HiggsAudioV2TokenizerModel.from_pretrained(...)</code> 单独加载。</td>
+          </tr>
+          <tr>
+            <td><code>config.json</code> 与 <code>audio_tokenizer/config.json</code></td>
+            <td>模型结构、层数、hidden size、codebook 数量、采样率等元信息。</td>
+            <td>告诉 Transformers 应该按什么类和结构把权重恢复成可运行模型。</td>
+            <td>不是权重，只是“装配说明书”。没有这些配置，单独的 safetensors 很难正确还原为模型对象。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        所以，“合并”这件事要分两层理解：在主模型内部，Qwen 主干参数和 OmniVoice 新增的音频层参数确实一起保存进了主 <code>model.safetensors</code>；但从完整 TTS 系统看，audio tokenizer 仍然是单独的模型资产目录，并没有被合进主模型权重文件。
+      </p>
+
+      <p class="note">
+        更准确的说法是：训练/保存时，Transformers 的 <code>save_pretrained</code> 体系会把一个模型对象的参数字典保存成 safetensors 权重文件；这不是简单文件拼接，而是按模块名保存参数张量。加载时再根据配置和 key 名称把这些张量放回对应子模块。
+      </p>
+    </div>
+
+    <div class="article-section">
+      <h2>主模型代码：omnivoice/models/omnivoice.py</h2>
+      <p>
+        这个文件是 models 主题的核心。它既定义了模型结构，也定义了推理流程。可以把它理解成 Java 里的一个核心 service + model class，但它继承的是 Hugging Face 的 <code>PreTrainedModel</code>。
+      </p>
+
+      <h3>关键类</h3>
+      <table summary="omnivoice/models/omnivoice.py 中主要模型类的职责">
+        <thead>
+          <tr>
+            <th>类名</th>
+            <th>职责</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>OmniVoiceConfig</code></td>
+            <td>描述模型结构。比如音频词表大小、mask id、codebook 数量、音频 codebook loss 权重，以及内部 LLM 的配置。</td>
+          </tr>
+          <tr>
+            <td><code>OmniVoice</code></td>
+            <td>主模型类。里面有底层 LLM、音频 embedding、音频预测头、推理生成、参考音频处理、后处理等逻辑。</td>
+          </tr>
+          <tr>
+            <td><code>OmniVoiceGenerationConfig</code></td>
+            <td>推理参数集合。比如生成步数 <code>num_step</code>、guidance、温度、长文本切块阈值、是否后处理等。</td>
+          </tr>
+          <tr>
+            <td><code>VoiceClonePrompt</code></td>
+            <td>语音克隆提示对象。缓存参考音频 token、参考文本、参考音量 RMS，便于重复生成。</td>
+          </tr>
+          <tr>
+            <td><code>GenerationTask</code></td>
+            <td>把一次生成请求规范化成 batch 任务，包含文本、目标音频长度、语言、风格指令和参考音频 token。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3>模型内部怎么“接上”音频</h3>
+      <p>
+        <code>OmniVoice</code> 内部有三块最关键的神经网络部件：
+      </p>
+      <div class="grid">
+        <div class="card">
+          <strong><code>self.llm</code></strong>
+          <p>底层语言模型主干。当前配置显示是 Qwen3/Qwen3ForCausalLM 风格，hidden size 为 1024，28 层，16 个 attention heads。</p>
+        </div>
+        <div class="card">
+          <strong><code>audio_embeddings</code></strong>
+          <p>把 8 个音频 codebook 的 token id 映射成 LLM hidden size 维度的 embedding。</p>
+        </div>
+        <div class="card">
+          <strong><code>audio_heads</code></strong>
+          <p>把 LLM hidden states 投影回音频 token 概率，形状可以理解成 8 个 codebook 分别预测 1025 个类别。</p>
+        </div>
+      </div>
+
+      <pre><code>文本 token / 风格 token / 参考音频 token / 待生成的 mask token
+        ↓
+_prepare_embed_inputs 把文本 token 和音频 token 转成统一 hidden 表示
+        ↓
+self.llm 处理整段上下文
+        ↓
+audio_heads 输出每个 audio codebook 的 token logits
+        ↓
+迭代解 mask，得到完整音频 token
+        ↓
+audio_tokenizer.decode 还原 WAV 波形</code></pre>
+
+      <h3>Qwen 不是文本模型吗，为什么能做语音？</h3>
+      <p>
+        这里的关键点是：OmniVoice 不是拿一个原封不动的 Qwen 聊天模型直接“说话”。它复用了 Qwen3 这一类模型的 Transformer 主干能力，再把输入和输出接口改造成适合语音 token 的形式。
+      </p>
+
+      <div class="mermaid">
+flowchart LR
+    A["普通 Qwen 文本模型"] --> B["文本 token embedding"]
+    B --> C["Qwen Transformer 主干"]
+    C --> D["文本 lm_head"]
+    D --> E["下一个文本 token"]
+
+    F["OmniVoice"] --> G["文本 token + 音频 token embedding"]
+    G --> H["Qwen Transformer 主干"]
+    H --> I["OmniVoice audio_heads"]
+    I --> J["8 路音频 codebook token"]
+    J --> K["audio_tokenizer.decode"]
+    K --> L["WAV 语音"]
+      </div>
+
+      <table summary="Qwen 文本模型作为 OmniVoice 主干时各部分含义">
+        <thead>
+          <tr>
+            <th>概念</th>
+            <th>在普通 Qwen 里</th>
+            <th>在 OmniVoice 里</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>主干模型</td>
+            <td>Transformer 层负责建模 token 序列关系。</td>
+            <td>仍然负责建模序列关系，只是序列里混合了文本 token、语言/风格 token、参考音频 token 和待预测音频 token。</td>
+          </tr>
+          <tr>
+            <td>输入 embedding</td>
+            <td>文本 token id 进入文本 embedding。</td>
+            <td>文本 token 走原文本 embedding；音频 token 走 <code>audio_embeddings</code>，再统一喂给同一个 Transformer。</td>
+          </tr>
+          <tr>
+            <td>输出头</td>
+            <td><code>lm_head</code> 预测下一个文本 token。</td>
+            <td><code>audio_heads</code> 预测音频 codebook token。也就是说，输出目标已经从“文字”换成了“离散音频 token”。</td>
+          </tr>
+          <tr>
+            <td>最终产物</td>
+            <td>一串文本 token，解码后得到文字。</td>
+            <td>一串音频 token，经 <code>audio_tokenizer.decode</code> 后得到语音波形。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        所以，“主干 LLM 是 Qwen3ForCausalLM 架构”更准确地理解为：OmniVoice 借用了 Qwen3 这一代文本大模型成熟的 Transformer 结构和初始化权重，让它不再只预测文字，而是在新的音频 embedding、音频预测头和语音训练目标下学习预测音频 token。
+      </p>
+
+      <p>
+        训练配置里的 <code>llm_name_or_path: "Qwen/Qwen3-0.6B"</code> 表示：如果不是从已经训练好的 OmniVoice checkpoint 初始化，就先从 Qwen3-0.6B 拿到一个会处理长序列、会建模语言上下文的基础 Transformer。随后，OmniVoice 会增加音频相关层，并通过语音数据训练，让这个主干适应“文本条件下生成音频 token”的任务。
+      </p>
+
+      <h3>用“输入、处理、输出”理解 Qwen3 Transformer 主干</h3>
+      <p>
+        可以用一种很工程化、接近冯诺伊曼机器的方式理解 Qwen3 Transformer 主干：它本身不是“文字打印机”，而是一个序列计算器。只要输入被表示成同一维度的向量序列，它就负责在这些位置之间做上下文计算，最后输出每个位置的上下文向量。
+      </p>
+
+      <table summary="用输入、处理、输出视角解释 Qwen3 Transformer 主干">
+        <thead>
+          <tr>
+            <th>阶段</th>
+            <th>在 OmniVoice 里的具体含义</th>
+            <th>工程文件对应点</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>输入</td>
+            <td>一串 hidden 向量，不是原始文字，也不是原始 WAV。文本 token 先经过文本 embedding；音频 token 先经过 <code>audio_embeddings</code>；两者被整理成同一种 hidden size 的序列。</td>
+            <td><code>_prepare_embed_inputs</code> 把 <code>input_ids</code> 和 <code>audio_mask</code> 变成 <code>inputs_embeds</code>。</td>
+          </tr>
+          <tr>
+            <td>处理</td>
+            <td>Transformer 层反复做 attention 和前馈网络计算。attention 让每个位置读取其他位置的信息，例如目标音频 mask 位置可以参考文本、语言、风格、参考音频 token。</td>
+            <td><code>self.llm(inputs_embeds=..., attention_mask=...)</code>。</td>
+          </tr>
+          <tr>
+            <td>输出</td>
+            <td>每个序列位置对应一个 hidden state。这个 hidden state 本身还不是文字或语音，它只是“上下文计算后的中间表示”。接什么输出头，才决定它被解释成文字概率还是音频 token 概率。</td>
+            <td><code>hidden_states = llm_outputs[0]</code>，然后交给 <code>audio_heads</code>。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="mermaid">
+flowchart LR
+    A["输入: token id + audio_mask"] --> B["_prepare_embed_inputs"]
+    B --> C["统一 hidden 向量序列"]
+    C --> D["Qwen3 Transformer 主干"]
+    D --> E["上下文 hidden states"]
+    E --> F["audio_heads"]
+    F --> G["音频 token 概率"]
+      </div>
+
+      <p class="note">
+        类比一下：Qwen 主干像一个很强的“序列理解和生成发动机”；普通文本模型给它接的是文字输出头，OmniVoice 给它接的是音频 token 输出头。发动机相似，但输入输出接口和训练目标已经变了。
+      </p>
+    </div>
+
+    <div class="article-section">
+      <h2>推理流程：generate 做了什么</h2>
+      <p>
+        README 里示例调用的是 <code>model.generate(...)</code>。这个方法支持三种模式：语音克隆、语音设计和自动音色。它们最后都会走到同一个音频 token 生成器。
+      </p>
+
+      <div class="mermaid">
+flowchart TD
+    A["用户调用 model.generate"] --> B["整理输入: 文本 / 语言 / instruct / ref_audio"]
+    B --> C{"是否有参考音频"}
+    C -->|有| D["create_voice_clone_prompt: 波形转音频 token"]
+    C -->|无| E["使用 voice design 或 auto voice"]
+    D --> F["估算目标音频 token 长度"]
+    E --> F
+    F --> G{"是否超过长文本阈值"}
+    G -->|否| H["_generate_iterative 直接生成"]
+    G -->|是| I["_generate_chunked 分块生成"]
+    H --> J["audio_tokenizer.decode"]
+    I --> J
+    J --> K["去静音 / 音量调整 / fade 和 padding"]
+    K --> L["返回 numpy 音频数组"]
+      </div>
+
+      <h3>用“输入、处理、输出”理解整个推理过程</h3>
+      <p>
+        如果把一次 TTS 推理看成一台冯诺伊曼式机器，它的输入不是只有一句文字，而是一组条件；处理过程不是一步生成 WAV，而是先把条件转成 token 序列、再迭代填空；输出也分为中间输出和最终输出。
+      </p>
+
+      <table summary="用输入、处理、输出视角解释 OmniVoice 推理过程">
+        <thead>
+          <tr>
+            <th>阶段</th>
+            <th>数据是什么</th>
+            <th>模型/代码做什么</th>
+            <th>产物是什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>输入</td>
+            <td>目标文本、语言 ID、voice design 指令、可选参考音频和参考文本、生成参数。</td>
+            <td><code>generate</code> 接收参数，<code>_preprocess_all</code> 统一整理 batch、语言、指令、速度和目标长度。</td>
+            <td><code>GenerationTask</code>：一份标准化后的生成任务。</td>
+          </tr>
+          <tr>
+            <td>条件编码</td>
+            <td>参考音频还是 WAV 波形，文本还是字符串。</td>
+            <td><code>create_voice_clone_prompt</code> 用 audio tokenizer 把参考音频转成音频 token；文本 tokenizer 把文本、语言、指令转成文本 token。</td>
+            <td>文本 token、风格 token、参考音频 token。</td>
+          </tr>
+          <tr>
+            <td>构造待求解区域</td>
+            <td>目标语音还不存在，只知道估算长度。</td>
+            <td><code>_prepare_inference_inputs</code> 创建一段全是 <code>audio_mask_id</code> 的目标音频 token 区域。</td>
+            <td>“条件 token + 待填空音频 mask token”的完整序列。</td>
+          </tr>
+          <tr>
+            <td>核心计算</td>
+            <td>完整 token 序列和 attention mask。</td>
+            <td><code>_generate_iterative</code> 多轮调用 <code>self(...)</code>，由 Qwen3 Transformer 主干计算 hidden states，再由 <code>audio_heads</code> 给出音频 token 概率。</td>
+            <td>每一轮填入一部分更有把握的音频 token。</td>
+          </tr>
+          <tr>
+            <td>中间输出</td>
+            <td>8 路 codebook 的离散音频 token。</td>
+            <td>如果是长文本，<code>_generate_chunked</code> 会分块生成，再把多个 chunk 交给后续解码。</td>
+            <td>完整或分块的音频 token 序列。</td>
+          </tr>
+          <tr>
+            <td>最终输出</td>
+            <td>音频 token 还不是人耳能听的声音。</td>
+            <td><code>_decode_and_post_process</code> 调用 <code>audio_tokenizer.decode</code> 转成波形，并做去静音、音量调整、淡入淡出和 padding。</td>
+            <td>可保存为 WAV 的 numpy 音频数组。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="mermaid">
+flowchart TD
+    A["输入: 文本/语言/指令/参考音频/生成参数"] --> B["预处理: 标准化为 GenerationTask"]
+    B --> C["编码: 文本 token + 音频 token"]
+    C --> D["构造: 待生成区域填 audio_mask_id"]
+    D --> E["计算: Transformer 主干 + audio_heads"]
+    E --> F["迭代: 逐步把 mask 替换成音频 token"]
+    F --> G["解码: audio_tokenizer.decode"]
+    G --> H["输出: WAV 波形数组"]
+      </div>
+
+      <h3>三种生成模式</h3>
+      <table summary="OmniVoice 三种推理生成模式的输入和内部处理方式">
+        <thead>
+          <tr>
+            <th>模式</th>
+            <th>用户提供什么</th>
+            <th>模型内部发生什么</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Voice cloning</td>
+            <td><code>ref_audio</code>，可选 <code>ref_text</code></td>
+            <td>参考音频被 <code>audio_tokenizer.encode</code> 变成音频 token；如果没有参考文本，可加载 Whisper ASR 自动转写。</td>
+          </tr>
+          <tr>
+            <td>Voice design</td>
+            <td><code>instruct</code>，例如 <code>male, british accent</code></td>
+            <td>指令被规范化后包进 <code>&lt;|instruct_start|&gt;</code> 和 <code>&lt;|instruct_end|&gt;</code>。</td>
+          </tr>
+          <tr>
+            <td>Auto voice</td>
+            <td>只有 <code>text</code></td>
+            <td>语言和指令都可以为空，让模型自己选择音色。</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="article-section">
+      <h2>第五章：语音信号的时频表示与 codec token</h2>
+      <div class="chapter-figure">
+        <img src="../books/images/chapter05_%E8%AF%AD%E9%9F%B3%E4%BF%A1%E5%8F%B7%E7%9A%84%E6%97%B6%E9%A2%91%E8%A1%A8%E7%A4%BA_%E5%A3%B0%E5%AD%A6%E8%A1%A8%E7%A4%BA%E6%B5%81%E7%A8%8B%E5%9B%BE.png" alt="第五章：语音信号的时频表示，解释 mel、F0、energy 与 codec token">
+      </div>
+
+      <h2>音频 tokenizer：不是辅助文件，而是第二个关键模型</h2>
+      <p>
+        <code>.models/OmniVoice/audio_tokenizer</code> 里保存的是 HiggsAudioV2TokenizerModel。它在工程中的地位很高，因为 OmniVoice 主模型学习和生成的对象都是“音频 token”，不是原始波形。
+      </p>
+
+      <div class="two-col">
+        <div class="card">
+          <strong>编码阶段</strong>
+          <p>参考音频或训练音频先被编码成多 codebook 离散 token。训练数据里保存的 <code>audio_tokens</code> 就来自这一步。</p>
+        </div>
+        <div class="card">
+          <strong>解码阶段</strong>
+          <p>主模型生成 8 路音频 token 后，再由 audio tokenizer 解码成采样率 24kHz 的音频。</p>
+        </div>
+      </div>
+
+      <p>
+        从本地配置看，audio tokenizer 的 <code>sample_rate</code> 是 24000，<code>hop_length</code> 是 960，主模型使用 <code>num_audio_codebook=8</code>。这解释了为什么代码里到处可以看到 <code>(C, T)</code> 这样的音频 token 形状，其中 <code>C</code> 通常就是 8。
+      </p>
+    </div>
+
+    <div class="article-section">
+      <h2>训练相关文件如何围绕 models 工作</h2>
+      <p>
+        训练不是另起炉灶，而是复用同一个 <code>OmniVoice</code> 类。差别在于训练时会调用 <code>forward</code> 计算 loss，推理时会调用 <code>generate</code> 逐步生成音频 token。
+      </p>
+
+      <table summary="训练相关文件如何围绕 OmniVoice 模型工作">
+        <thead>
+          <tr>
+            <th>文件</th>
+            <th>含义</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>omnivoice/training/config.py</code></td>
+            <td>训练配置 dataclass。记录底层 LLM、音频词表、codebook 数量、batch tokens、学习率、混合精度、checkpoint 等。</td>
+          </tr>
+          <tr>
+            <td><code>omnivoice/training/builder.py</code></td>
+            <td>训练装配器。负责加载 tokenizer、创建或加载 <code>OmniVoice</code>、补齐特殊 token，并构建 dataloader。</td>
+          </tr>
+          <tr>
+            <td><code>omnivoice/data/processor.py</code></td>
+            <td>把样本加工成模型输入。它会拼接语言、指令、文本 token 和音频 token，并随机 mask 部分音频 token 作为训练目标。</td>
+          </tr>
+          <tr>
+            <td><code>omnivoice/data/collator.py</code></td>
+            <td>把多个样本合成 batch。支持 padding 方式，也支持 flex attention 场景下的 sequence packing。</td>
+          </tr>
+          <tr>
+            <td><code>examples/config/*.json</code></td>
+            <td>示例训练配置。比如 <code>train_config_finetune.json</code> 从 <code>k2-fsa/OmniVoice</code> 初始化权重，适合微调。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="mermaid">
+flowchart LR
+    A["JSONL 原始数据"] --> B["extract_audio_tokens"]
+    B --> C["WebDataset shards + labels"]
+    C --> D["OmniVoiceSampleProcessor"]
+    D --> E["DataCollator"]
+    E --> F["OmniVoice.forward"]
+    F --> G["audio_heads logits"]
+    G --> H["masked audio token loss"]
+      </div>
+    </div>
+
+    <div class="article-section">
+      <h2>第七章：TTS 模型的历史演化</h2>
+      <div class="history-infographic">
+        <h3 class="history-title">第七章：TTS 模型的历史演化</h3>
+        <div class="history-subtitle">从规则系统到生成式模型</div>
+
+        <div class="era-row">
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">1</span><span>规则合成</span></div>
+            <div class="era-icon">⚙</div>
+            <div class="era-flow">人工规则 →<br>声学参数 → 波形</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>可解释</li><li>可控</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>声音机械</li><li>规则难维护</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">2</span><span>拼接式合成</span></div>
+            <div class="era-icon">▣</div>
+            <div class="era-flow">录音片段检索<br>与拼接</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然</li><li>真实片段</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖录音库</li><li>泛化差</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">3</span><span>HMM TTS</span></div>
+            <div class="era-icon">▥</div>
+            <div class="era-flow">文本特征 →<br>统计参数 → vocoder</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>稳定</li><li>体积小</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>过度平滑</li><li>不够自然</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">4</span><span>Tacotron 类<span class="era-sub">Tacotron</span></span></div>
+            <div class="era-icon">◎</div>
+            <div class="era-flow">text → mel,<br>attention, 对齐</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然度提升</li><li>端到端</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>自回归慢</li><li>对齐易错</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">5</span><span>FastSpeech 类<span class="era-sub">FastSpeech</span></span></div>
+            <div class="era-icon">▥</div>
+            <div class="era-flow">显式 duration,<br>并行生成 mel</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>快</li><li>稳定可控</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖对齐</li><li>依赖时长监督</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">6</span><span>VITS 类<span class="era-sub">VITS</span></span></div>
+            <div class="era-icon">◉</div>
+            <div class="era-flow">latent + flow + GAN,<br>端到端</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>音质强</li><li>一对多建模</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>训练复杂</li><li>调试难</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">7</span><span>Diffusion / Flow<span class="era-sub">Diffusion / Flow</span></span></div>
+            <div class="era-icon">☁</div>
+            <div class="era-flow">噪声 →<br>多步生成语音表示</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>自然</li><li>多样性强</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>推理较慢</li><li>控制复杂</li></ul>
+          </div>
+
+          <div class="era-card">
+            <div class="era-head"><span class="era-num">8</span><span>Codec / Speech LM<span class="era-sub">Codec / Speech LM</span></span></div>
+            <div class="era-icon">▦</div>
+            <div class="era-flow">语音 token 化后<br>建模</div>
+            <ul class="era-list"><li><strong>优势：</strong></li><li>适合大模型范式</li><li>支持 zero-shot</li></ul>
+            <ul class="era-list problems"><li><strong>问题：</strong></li><li>依赖 codec</li><li>token 设计复杂</li></ul>
+          </div>
+        </div>
+
+        <div class="logic-band">
+          <div class="logic-label">核心演化<br>逻辑</div>
+          <div class="logic-step">人工规则 / 片段拼接</div>
+          <div class="logic-step teal">统计参数 / 神经声学模型</div>
+          <div class="logic-step deep">生成式建模 / 语音 token 建模</div>
+        </div>
+
+        <div class="history-lower">
+          <div class="today-box">
+            <h4>今天的主流不止一条</h4>
+            <div class="today-paths">
+              <div class="path-row">
+                <div class="path-node">文本 / 音素</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">声学模型</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">vocoder</div>
+              </div>
+              <div class="path-row">
+                <div class="path-node">文本 / 音素</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">diffusion / flow</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">mel / latent / waveform</div>
+              </div>
+              <div class="path-row long">
+                <div class="path-node">waveform</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">codec encoder</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">token</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">生成模型</div>
+                <div class="path-arrow">→</div>
+                <div class="path-node">codec decoder</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="history-points">
+            <h4>本章重点</h4>
+            <ul>
+              <li><span class="check">✓</span><span>每一代模型都在解决新的工程问题</span></li>
+              <li><span class="check">✓</span><span>关注点：音质、速度、稳定性、可控性</span></li>
+              <li><span class="check">✓</span><span>Tacotron 提升自然度，但存在对齐和速度问题</span></li>
+              <li><span class="check">✓</span><span>FastSpeech 强调显式时长与并行生成</span></li>
+              <li><span class="check">✓</span><span>Diffusion / Codec 路线更贴近新一代生成式语音模型</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <h3>补充：评估模型 eval/models 不是主模型</h3>
+      <p>
+        <code>omnivoice/eval/models</code> 下面的模型容易被误认为 OmniVoice 主体的一部分，但它们主要服务于评估。
+      </p>
+
+      <table summary="评估模型文件和主模型之间的职责区别">
+        <thead>
+          <tr>
+            <th>路径</th>
+            <th>用途</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>omnivoice/eval/models/ecapa_tdnn_wavlm.py</code></td>
+            <td>说话人相似度评估相关模型，配合 <code>eval/speaker_similarity/sim.py</code> 使用。</td>
+          </tr>
+          <tr>
+            <td><code>omnivoice/eval/models/utmos.py</code></td>
+            <td>UTMOS 自然度评分模型结构，配合 <code>eval/mos/utmos.py</code> 使用。</td>
+          </tr>
+          <tr>
+            <td><code>omnivoice/eval/wer/*.py</code></td>
+            <td>WER/CER 评估脚本，调用不同 ASR 模型转写生成语音，再和目标文本比较。</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        换句话说，<code>omnivoice/models</code> 是“生产声音”的模型；<code>omnivoice/eval/models</code> 是“评价声音”的模型。
+      </p>
+    </div>
+
+    <div class="article-section">
+      <h2>几个关键数字</h2>
+      <p>
+        这些数字来自当前本地配置和项目代码，能帮助快速建立模型规模感。
+      </p>
+      <div>
+        <span class="pill">600+ 支持语言</span>
+        <span class="pill">646 语言清单</span>
+        <span class="pill">8 个音频 codebook</span>
+        <span class="pill">1025 音频词表大小</span>
+        <span class="pill">1024 audio mask id</span>
+        <span class="pill">24kHz 音频 tokenizer</span>
+        <span class="pill">Qwen3 风格 LLM 配置</span>
+        <span class="pill">主权重约 2.3GB</span>
+        <span class="pill">audio tokenizer 权重约 768MB</span>
+      </div>
+    </div>
+
+    <div class="article-section">
+      <h2>源码文件索引</h2>
+      <p>
+        如果后续要继续读代码，可以按这个顺序看，理解成本最低：
+      </p>
+      <ol>
+        <li><code>README.md</code>：先看三种使用模式和 CLI 示例。</li>
+        <li><code>omnivoice/__init__.py</code>：确认包对外暴露的是 <code>OmniVoice</code>、<code>OmniVoiceConfig</code>、<code>OmniVoiceGenerationConfig</code>。</li>
+        <li><code>omnivoice/models/omnivoice.py</code>：读主模型类、配置类和生成流程。</li>
+        <li><code>omnivoice/cli/infer.py</code>：看命令行如何加载模型并调用 <code>generate</code>。</li>
+        <li><code>omnivoice/cli/demo.py</code>：看 Gradio UI 如何把模式选择映射为模型参数。</li>
+        <li><code>omnivoice/training/builder.py</code>：看训练时如何加载模型和 tokenizer。</li>
+        <li><code>omnivoice/data/processor.py</code>：看训练样本如何变成模型输入。</li>
+        <li><code>omnivoice/eval/models/*</code>：最后再看评估模型，避免和主模型混在一起。</li>
+      </ol>
+    </div>
+
+    <div class="article-section">
+      <h2>一句话总结</h2>
+      <p class="note">
+        OmniVoice 的 models 不是一个单独文件，而是一套组合：<code>OmniVoice</code> 主模型负责根据文本、语言、风格和参考音频预测离散音频 token；<code>audio_tokenizer</code> 负责音频和 token 之间互转；训练、CLI、Demo、评估模块则围绕这两个核心模型组织工程流程。
+      </p>
+    </div>
+
+    <div class="footer">
+      <p>
+        参考当前仓库文件：<code>omnivoice/models/omnivoice.py</code>、<code>.models/OmniVoice/config.json</code>、<code>.models/OmniVoice/audio_tokenizer/config.json</code>、<code>omnivoice/training/builder.py</code>、<code>omnivoice/data/processor.py</code>、<code>README.md</code>。
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs";
+    mermaid.initialize({ startOnLoad: true, theme: "neutral" });
+  </script>
+</body>
+</html>

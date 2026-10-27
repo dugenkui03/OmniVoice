@@ -1,0 +1,28 @@
+{
+    "include": [
+        "omnivoice",
+        "examples"
+    ],
+    "exclude": [
+        "**/__pycache__",
+        ".venv",
+        "**/node_modules",
+        "docs"
+    ],
+
+    "venvPath": ".",
+    "venv": ".venv",
+
+    "extraPaths": [
+        "."
+    ],
+
+    "pythonVersion": "3.10",
+    "pythonPlatform": "Darwin",
+
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+
+    "reportMissingImports": "warning",
+    "reportMissingTypeStubs": "none"
+}

@@ -16,6 +16,7 @@
 # limitations under the License.
 
 """Dataset and data-loading utilities for training and evaluation.
+数据集和数据加载工具，用于模型训练和评测。
 
 Provides WebDataset-based iterable datasets, manifest parsing, and audio/token
 loading. Used by ``omnivoice.training.builder.build_dataloaders()`` to construct

@@ -52,17 +52,33 @@ def load_waveform(audio_path: str):
     Returns:
         (data, sample_rate) where data is a numpy float32 array of
         shape (C, T).
+
+    中文说明:
+        从文件路径读取音频, 返回 (波形数据, 采样率)。
+        按顺序尝试两个后端:
+          1. soundfile — 覆盖 WAV/FLAC/OGG 等, 无需 ffmpeg。
+          2. librosa — 经 audioread + ffmpeg 覆盖 MP3/M4A 等。
+        返回的 data 是形状 (C, T) 的 numpy float32 数组。
+
+        用到的第三方包:
+          - soundfile (sf): 基于 libsndfile 的音频读写库, 不依赖 ffmpeg,
+            读无损/未压缩格式快且依赖少, 故作首选。
+          - librosa: 音频分析库, 底层经 audioread+ffmpeg 可解码 MP3/M4A 等
+            压缩格式; 功能全但更重, 故仅在 soundfile 失败时兜底。
     """
     try:
+        # 首选 soundfile: always_2d=True 保证即使单声道也返回二维 (T, C)
         data, sr = sf.read(audio_path, dtype="float32", always_2d=True)
-        return data.T, sr  # (T, C) → (C, T)
+        return data.T, sr  # (T, C) → (C, T) 转置成项目约定的"通道在前"
     except Exception:
         # soundfile cannot handle MP3/M4A etc., fall back to librosa.
-        import librosa
+        # soundfile 读不了 MP3/M4A 等压缩格式时, 回落到 librosa
+        import librosa  # 延迟导入: 仅在确实需要时才加载这个较重的库
 
+        # sr=None 表示保留文件原采样率(不重采样); mono=False 表示保留多声道
         data, sr = librosa.load(audio_path, sr=None, mono=False)
         if data.ndim == 1:
-            data = data[np.newaxis, :]
+            data = data[np.newaxis, :]  # 单声道 (T,) → (1, T), 补出通道维
         return data, sr
 
 
@@ -75,11 +91,19 @@ def load_audio(audio_path: str, sampling_rate: int) -> np.ndarray:
 
     Returns:
         Numpy float32 array of shape (1, T).
+
+    中文说明:
+        从文件读取音频并规整: 转单声道 + 重采样到目标采样率。
+        参数: audio_path 音频路径; sampling_rate 目标采样率。
+        返回: 形状 (1, T) 的 numpy float32 数组 (单声道, T 为采样点数)。
     """
+    # 先读出原始波形 (C, T) 与原采样率 sr (内部按 soundfile→librosa 兜底)
     data, sr = load_waveform(audio_path)
 
+    # 多声道(C>1) → 沿通道轴(axis=0)求均值混成单声道; keepdims=True 保持二维 (1, T)
     if data.shape[0] > 1:
         data = np.mean(data, axis=0, keepdims=True)
+    # 原采样率与目标不一致 → 重采样 (torchaudio 只吃 torch 张量, 故 numpy→torch 算完再转回)
     if sr != sampling_rate:
         data = torchaudio.functional.resample(
             torch.from_numpy(data), orig_freq=sr, new_freq=sampling_rate
@@ -269,31 +293,57 @@ def trim_long_audio(
 
     Returns:
         Trimmed numpy array.
+
+    中文说明:
+        把过长音频在静音间隙处切断, 使时长不超过 max_duration。
+        仅当音频超过 trim_threshold 秒时才裁剪, 尽量切在静音处以免截断词语。
+
+        参数:
+            audio: 形状 (C, T) 的 numpy 数组。
+            sampling_rate: 采样率。
+            max_duration: 裁剪后允许的最大时长(秒)。
+            min_duration: 裁剪后至少保留的时长(秒)。
+            trim_threshold: 只有超过该秒数才裁剪。
+        返回:
+            裁剪后的 numpy 数组。
     """
+    # 总时长(秒) = 采样点数 / 采样率; 未超过阈值则原样返回, 不裁剪
     duration = audio.shape[-1] / sampling_rate
     if duration <= trim_threshold:
         return audio
 
+    # numpy 波形 → pydub AudioSegment, 以便用静音检测工具
     seg = numpy_to_audiosegment(audio, sampling_rate)
+    # 检测所有“非静音”区间 [(start_ms, end_ms), ...]
+    #   min_silence_len=100: 至少 100ms 静音才算一段间隔
+    #   silence_thresh=-40: 低于 -40dB 视为静音
+    #   seek_step=10: 每 10ms 扫描一步
     nonsilent = detect_nonsilent(
         seg, min_silence_len=100, silence_thresh=-40, seek_step=10
     )
+    # 整段几乎全是静音(检测不到非静音) → 无从切分, 原样返回
     if not nonsilent:
         return audio
 
+    # 秒 → 毫秒, 后续 pydub 的下标单位是毫秒
     max_ms = int(max_duration * 1000)
     min_ms = int(min_duration * 1000)
 
+    # 在 max_ms 之前, 找一个尽量靠后的“非静音段起点”作为切点,
+    # 这样切口落在静音间隙里, 不会把一个词从中间截断
     best_split = 0
     for start, end in nonsilent:
         if start > best_split and start <= max_ms:
             best_split = start
+        # 已经越过 max_ms, 后面的段无需再看
         if end > max_ms:
             break
 
+    # 找到的切点太靠前(短于 min_ms) → 直接切到 max_ms(或音频末尾), 保证够长
     if best_split < min_ms:
         best_split = min(max_ms, len(seg))
 
+    # 按切点截取前半段, 再转回 numpy 返回
     trimmed = seg[:best_split]
     return audiosegment_to_numpy(trimmed)
 
@@ -303,7 +353,9 @@ def cross_fade_chunks(
     sample_rate: int,
     silence_duration: float = 0.3,
 ) -> np.ndarray:
-    """Concatenate audio chunks with silence gaps and cross-fade at boundaries.
+    """Concatenate(拼接) audio chunks with silence gaps and cross-fade at boundaries.
+    - cross-fade：交叉淡化，通常指前一段淡出的同时，后一段淡入，使连接更自然
+    【注】：仅仅是长音频的情况，比如30s音频拆成了两个15处理的时候、在这个方法中进行拼接
 
     Args:
         chunks: list of numpy arrays, each (C, T).
