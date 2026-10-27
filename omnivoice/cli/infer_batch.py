@@ -142,6 +142,13 @@ def get_parser():
         "If > 0, use fixed-size batching instead of duration-based batching.",
     )
     parser.add_argument(
+        "--enable_flashinfer",
+        type=str2bool,
+        default=False,
+        help="Enable FlashInfer-accelerated decoding (sequence packing, fused "
+        "kernels; see optimize.md). Requires the flashinfer-python package.",
+    )
+    parser.add_argument(
         "--warmup",
         type=int,
         default=0,
@@ -195,7 +202,7 @@ def get_parser():
     return parser
 
 
-def process_init(rank_queue, model_checkpoint, warmup=0):
+def process_init(rank_queue, model_checkpoint, warmup=0, enable_flashinfer=False):
     """每个 worker 进程的初始化函数.
 
     由 ProcessPoolExecutor 在子进程启动时调用一次, 把 OmniVoice 模型
@@ -232,6 +239,13 @@ def process_init(rank_queue, model_checkpoint, warmup=0):
         dtype=torch.float16,
     )
 
+    # 在子进程中按需启用 FlashInfer；spawn 模式不会继承父进程对模型的补丁。
+    if enable_flashinfer:
+        from omnivoice.models.omnivoice_flashinfer import apply_flashinfer
+
+        apply_flashinfer(worker_model)
+        logging.info("flashinfer acceleration enabled")
+
     # 预热: 提前触发 CUDA kernel autotune / cudnn benchmark, 让正式 batch 不抖
     if warmup > 0:
         logging.info(f"Running {warmup} warmup iterations on {worker_device}")
@@ -251,6 +265,21 @@ def process_init(rank_queue, model_checkpoint, warmup=0):
     logging.info(f"Worker on {worker_device} initialized successfully.")
 
 
+def _get_audio_duration(audio_path: str) -> float:
+    """Return the duration of an audio file in seconds.
+
+    Reads only the file header, so the samples are never decoded or resampled.
+    Falls back to a full decode for formats ``soundfile`` cannot inspect
+    (e.g. MP3/M4A on older libsndfile builds).
+    """
+    try:
+        info = sf.info(audio_path)
+        return info.frames / info.samplerate
+    except Exception:
+        wav = load_audio(audio_path, SAMPLING_RATE)
+        return wav.shape[-1] / SAMPLING_RATE
+
+
 def estimate_sample_total_duration(
     duration_estimator: RuleDurationEstimator,
     text: str,
@@ -265,8 +294,7 @@ def estimate_sample_total_duration(
     duration contributes to the total.
     """
     if ref_audio_path is not None:
-        ref_wav = load_audio(ref_audio_path, SAMPLING_RATE)
-        ref_duration = ref_wav.shape[-1] / SAMPLING_RATE
+        ref_duration = _get_audio_duration(ref_audio_path)
     else:
         ref_duration = 0
 
@@ -387,7 +415,9 @@ def run_inference_batch(
     audios = worker_model.generate(
         text=texts,
         language=langs,
-        ref_audio=ref_audio_paths if any(p is not None for p in ref_audio_paths) else None,
+        ref_audio=ref_audio_paths
+        if any(p is not None for p in ref_audio_paths)
+        else None,
         ref_text=ref_texts if any(t is not None for t in ref_texts) else None,
         duration=durations if any(d is not None for d in durations) else None,
         speed=speeds if any(s is not None for s in speeds) else None,
@@ -462,7 +492,7 @@ def main():
         with ProcessPoolExecutor(
             max_workers=num_processes,
             initializer=process_init,
-            initargs=(rank_queue, args.model, args.warmup),
+            initargs=(rank_queue, args.model, args.warmup, args.enable_flashinfer),
         ) as executor:
             futures = []
 

@@ -105,11 +105,12 @@ fi
 if [ $stage -le 2 ] && [ $stop_stage -ge 2 ]; then
     echo "Stage 2: Training"
 
+    # 指定训练配置；续行符必须位于行尾，不能在其后追加注释。
     accelerate launch \
         --gpu_ids "${GPU_IDS}" \
         --num_processes ${NUM_GPUS} \
         -m omnivoice.cli.train \
-        --train_config ${TRAIN_CONFIG} \ # 指定训练配置
+        --train_config ${TRAIN_CONFIG} \
         --data_config ${data_config} \
         --output_dir ${OUTPUT_DIR}
 fi

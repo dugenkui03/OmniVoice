@@ -162,16 +162,44 @@ audio = model.generate(
 ) # audio is a list of `np.ndarray` with shape (T,) at 24 kHz.
 
 # If you don't want to input `ref_text` manually, you can directly omit the `ref_text`.
-# The model will use Whisper ASR to auto-transcribe it.
+# The model will use Whisper ASR to auto-transcribe it. To use a local copy (or
+# a different Whisper model), pass `asr_model_name="..."` to `from_pretrained`.
+# To control which device Whisper is loaded on (e.g. another GPU in multi-GPU
+# setups, or the CPU), pass `asr_device="cuda:1"` (or `"cpu"`).
 
 sf.write("out.wav", audio[0], 24000)
+```
+
+#### Reusing a cloned voice across sessions
+
+Encode the reference audio once, save the resulting prompt, and skip the
+audio loading / auto-transcription steps in later sessions:
+
+```python
+prompt = model.create_voice_clone_prompt(
+    ref_audio="ref.wav", ref_text="Transcription of the reference audio."
+)
+prompt.save("my_voice.pt")
+
+# Later, in a new session:
+from omnivoice import VoiceClonePrompt
+
+prompt = VoiceClonePrompt.load("my_voice.pt")
+audio = model.generate(text="Hello again!", voice_clone_prompt=prompt)
 ```
 
 > **Tips**
 >
 > - Use a 3–10 seconds reference audio clip. Longer audio slows down inference and may degrade cloning quality.
 > - For standard pronunciation, use a reference audio in the **same language** as the target speech. In cross-lingual voice cloning (i.e., the reference audio and target speech are in different languages), the generated speech will carry an accent from the reference audio's language.
-> - For better results with Arabic numerals, normalize them to words first (e.g., "123" → "one hundred twenty-three") with text normalization tools (e.g., [WeTextProcessing](https://github.com/wenet-e2e/WeTextProcessing)).
+> - For better results with Arabic numerals, normalize them to words first (e.g., "123" → "one hundred twenty-three"). You can pass `normalize_text=True` to `generate()` to do this automatically (opt-in; install the extra with `pip install "omnivoice[tn]"`, which pulls in [WeTextProcessing](https://github.com/wenet-e2e/WeTextProcessing)):
+>
+>   ```python
+>   # "I have 2345 apples." is read correctly instead of digit-by-digit.
+>   audio = model.generate(text="I have 2345 apples.", normalize_text=True)
+>   ```
+>
+>   Chinese and English use WeTextProcessing; other languages fall back to `num2words` for integers. Inline control syntax (`[laughter]`, `[B EY1 S]`, pinyin tone markers) is preserved. On macOS (Apple Silicon), `pynini` has no wheel — install it via `conda install -c conda-forge pynini` first.
 >
 > For more tips, see [docs/tips.md](docs/tips.md).
 
@@ -190,7 +218,7 @@ audio = model.generate(
 )
 ```
 
-> **Note**: Voice design was trained on Chinese and English data only. It can generalize to other languages, but results can be unstable for some low-resource languages.
+> **Note**: The model is primarily trained on the voice cloning task, so voice cloning is the most stable mode. Voice design is trained on Chinese and English data only. It can generalize to other languages, but may produce unstable results for some low-resource languages or edge cases.
 
 See [docs/voice-design.md](docs/voice-design.md) for the full attribute
 reference, Chinese equivalents, and usage tips.
@@ -305,6 +333,50 @@ The test list is a JSONL file where each line is a JSON object:
 Only `id` and `text` are mandatory fields. `ref_audio` and `ref_text` are used in voice cloning mode. `instruct` is used in voice design mode. If no reference audio or instruct are provided, the model will generate text in a random voice.
 
 `language_id`, `duration`, and `speed` are optional. `duration` (in seconds) fixes the output length; `speed` controls the speaking rate. If `duration` and `speed` are both provided, `speed` will be ignored.
+
+### FlashInfer Acceleration
+
+Inference can be accelerated ~2-2.9x losslessly with [FlashInfer](https://github.com/flashinfer-ai/flashinfer) kernels (sequence packing for the CFG cond/uncond pair, fused RMSNorm/RoPE/GEMM kernels, and optional CUDA graphs).
+
+**Installation** (NVIDIA GPUs; pick the index matching your CUDA version, e.g. cu128 for PyTorch built with CUDA 12.8):
+
+```bash
+pip install flashinfer-python==0.6.15.post1 "flashinfer-jit-cache==0.6.15.post1+cu128" \
+    --extra-index-url https://flashinfer.ai/whl/cu128/
+```
+
+**Usage** with the batch inference CLI:
+
+```bash
+omnivoice-infer-batch \
+    --model k2-fsa/OmniVoice \
+    --test_list test.jsonl \
+    --res_dir results/ \
+    --batch_size 8 \
+    --enable_flashinfer true
+```
+
+or with the Python API:
+
+```python
+from omnivoice.models.omnivoice_flashinfer import apply_flashinfer
+
+model = OmniVoice.from_pretrained("k2-fsa/OmniVoice", device_map="cuda", dtype=torch.float16)
+apply_flashinfer(model)                          # throughput / batched inference
+apply_flashinfer(model, enable_cuda_graph=True)  # recommended for batch=1 (low latency)
+```
+
+CUDA graphs are recommended for single-stream (batch=1) usage, where kernel-launch overhead dominates; at batch >= 4 the plain FlashInfer path is already the fastest configuration.
+
+**Benchmark** (seed-tts zh testset, 2020 samples / 3.3h audio, voice cloning, single H100, fp16, `num_step=32`; Average RTF as reported by `omnivoice-infer-batch`, outputs ASR-verified lossless):
+
+| batch size | baseline | FlashInfer | speedup |
+|---|---|---|---|
+| 1 | 0.0899 | 0.0430 | 2.1x |
+| 1 + CUDA graph | — | 0.0367 | 2.4x |
+| 2 | 0.0480 | 0.0245 | 2.0x |
+| 4 | 0.0331 | 0.0152 | 2.2x |
+| 8 | 0.0298 | **0.0115** | **2.6x** |
 
 ---
 

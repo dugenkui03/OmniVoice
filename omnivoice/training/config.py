@@ -40,7 +40,7 @@ class TrainingConfig:
     # Model Specific
     llm_name_or_path: str = "Qwen/Qwen3-0.6B" # 模型路径，注意、也是用到了 Qwen 的文本 tokenizer
     audio_vocab_size: int = 1025  # valid vocab size + 1 (mask token)。【tips】音频 token 词表总大小是1024，加上一个 mask token
-    audio_mask_id: int = 1024  # 1024 is the 1025-th token 【tips】1024个音频token
+    audio_mask_id: int = 1024  # MASK 占位符的 ID；有效音频 token ID 为 0～1023
     num_audio_codebook: int = 8 # codebook 层数
 
     # Model Training Specific
@@ -60,6 +60,30 @@ class TrainingConfig:
     # Init settings
     resume_from_checkpoint: Optional[str] = None  # 断点续训：恢复模型、优化器、调度器和训练进度
     init_from_checkpoint: Optional[str] = None  # 新训练初始化：只加载已有模型权重（常用于微调）
+
+    # LoRA (PEFT) Settings
+    use_lora: bool = False
+    lora_r: int = 16
+    lora_alpha: int = 32
+    lora_dropout: float = 0.05
+    lora_bias: str = "none"
+    lora_target_modules: List[str] = field(
+        default_factory=lambda: [
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ]
+    )
+    # Non-LLM modules trained in full rather than via low-rank adapters,
+    # since they are OmniVoice-specific audio I/O layers, not general LLM
+    # knowledge, and are small relative to the LLM backbone.
+    lora_modules_to_save: List[str] = field(
+        default_factory=lambda: ["audio_embeddings", "audio_heads"]
+    )
 
     # Training Hyperparams
     learning_rate: float = 1e-4

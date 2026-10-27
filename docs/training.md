@@ -2,7 +2,7 @@
 
 ## Training Config
 
-All training is controlled by a JSON training config file and a JSON data config file. 
+All training is controlled by a JSON training config file and a JSON data config file.
 
 See [examples/config/](../examples/config/) for ready-to-use configs.
 
@@ -93,6 +93,10 @@ To start training from a pretrained OmniVoice checkpoint (for fine-tuning):
     "init_from_checkpoint": "exp/omnivoice/checkpoint-100000"
 }
 ```
+
+## LoRA Finetuning
+
+For parameter-efficient finetuning, set `"use_lora": true` in your training config to train low-rank adapters instead of the full model. See [lora_finetuning.md](lora_finetuning.md) for configuration, adapter inference, and merging back into a standalone checkpoint.
 
 ## Monitoring
 

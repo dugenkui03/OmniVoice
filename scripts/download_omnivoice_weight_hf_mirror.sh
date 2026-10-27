@@ -12,7 +12,10 @@ set -Eeuo pipefail
 
 REPO_ID="k2-fsa/OmniVoice"
 FILENAME="model.safetensors"
-MODEL_DIR="${MODEL_DIR:-/Users/dugenkui/workspace/OmniVoice/.models/OmniVoice}"
+# 默认写入当前仓库，避免依赖开发者电脑的绝对路径；仍允许 MODEL_DIR 显式覆盖。
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+MODEL_DIR="${MODEL_DIR:-$REPO_ROOT/.models/OmniVoice}"
 HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}"
 MIN_BYTES=2400000000
 

@@ -134,7 +134,11 @@ class OmniTrainer:
 
         # 4. Prepare with Accelerator
         # 元组解包：把 prepare() 返回的 3 个对象依次赋给左侧 3 个变量，数量必须严格匹配。
-        (self.model, self.optimizer, self.lr_scheduler,) = self.accelerator.prepare(
+        (
+            self.model,
+            self.optimizer,
+            self.lr_scheduler,
+        ) = self.accelerator.prepare(
             self.model,
             self.optimizer, # 绑定了 model.Parameters() 的优化器
             self.lr_scheduler, # 绑定了 optimizer
@@ -224,8 +228,10 @@ class OmniTrainer:
                 AdamW: 一种优化器 Optimizer，用于训练模型
                 Learning Rate Scheduler: 一种调度器，用于调整学习率
         """
+        # 全量微调使用全部可训练参数；LoRA 模式仅优化适配器及 modules_to_save。
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
         optimizer = torch.optim.AdamW(
-            self.model.parameters(), # 权重，【重要】获取模型参数，优化器在这里跟模型参数绑定
+            trainable_params, # 权重，【重要】优化器在这里与可训练参数绑定
             # AdamW 的基础/峰值学习率；训练中 lr_scheduler 会动态调整实际学习率
             # SGD 的基础理解：新权重 = 旧权重 - 学习率 × 梯度。SGD 随机梯度下降（Stochastic Gradient Descent）
             lr=self.config.learning_rate, 
@@ -420,9 +426,7 @@ class OmniTrainer:
                             #【重要】裁剪规则：这个限制的是所有的梯度元素的 L2范数，如果超过则所有梯度元素按照相同比例进行缩放
                             self.config.max_grad_norm
                         )
-                        grad_norm = (
-                            grad_norm.item() if grad_norm is not None else 0.0
-                        )
+                        grad_norm = grad_norm.item() if grad_norm is not None else 0.0
 
                     # 更新模型权重，基本逻辑是 新权重 = 旧权重 - 学习率 × 梯度
                     # 权重参数更新程度 与 【学习率 × 梯度】 正相关

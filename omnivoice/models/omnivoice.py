@@ -76,6 +76,7 @@ from transformers import (
     PreTrainedModel,
 )
 from transformers.modeling_outputs import ModelOutput
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, AttentionInterface
 from transformers.models.auto import CONFIG_MAPPING, AutoConfig
 
 from omnivoice.utils.audio import (
@@ -87,7 +88,11 @@ from omnivoice.utils.audio import (
 )
 from omnivoice.utils.duration import RuleDurationEstimator
 from omnivoice.utils.lang_map import LANG_IDS, LANG_NAMES
-from omnivoice.utils.text import add_punctuation, chunk_text_punctuation
+from omnivoice.utils.text import (
+    add_punctuation,
+    chunk_text_punctuation,
+    normalize_text as _normalize_text,
+)
 from omnivoice.utils.voice_design import (
     _INSTRUCT_ALL_VALID,
     _INSTRUCT_EN_TO_ZH,
@@ -100,10 +105,38 @@ from omnivoice.utils.voice_design import (
 
 logger = logging.getLogger(__name__)
 
+_AUTOCAST_FLEX_ATTENTION = "omnivoice_flex_attention"
+
+
+def _autocast_flex_attention(module, query, key, value, *args, **kwargs):
+    """flex_attention with the same autocast treatment SDPA already gets.
+
+    Mixed-precision training keeps fp32 master weights, so Qwen3's
+    ``q_norm``/``k_norm`` (fp32 weight x bf16 activation) silently promote
+    q/k — and, through the fp32 RoPE constants, v — back to fp32. SDPA is
+    on autocast's cast list and is downcast at the kernel boundary;
+    ``flex_attention`` is not, so with ``attn_implementation:
+    "flex_attention"`` all attention math runs in fp32: the fp32 backward
+    template is ~12x slower at head_dim=128 (61.8ms vs 5.1ms per
+    layer-call, H100, identical mask/shape/layout), and the flex and sdpa
+    paths become numerically inconsistent with each other. Casting here
+    restores the treatment autocast applies to every other matmul; softmax
+    accumulation inside the kernel is fp32 either way.
+    """
+    if torch.is_autocast_enabled(query.device.type) and query.dtype == torch.float32:
+        dtype = torch.get_autocast_dtype(query.device.type)
+        query, key, value = (t.to(dtype) for t in (query, key, value))
+    return ALL_ATTENTION_FUNCTIONS["flex_attention"](
+        module, query, key, value, *args, **kwargs
+    )
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
+
+
+_VOICE_CLONE_PROMPT_FORMAT_VERSION = 1
 
 
 @dataclass
@@ -117,6 +150,51 @@ class VoiceClonePrompt:
     ref_text: str                   # 参考音频对应的文本(可由 Whisper 自动转写)
     ref_rms: float                  # 参考音频响度(RMS 均方根 = sqrt(mean(wav**2))), 用来给输出做音量归一
 
+    def save(self, path: str) -> None:
+        """Save this prompt to ``path`` for reuse in a later session.
+
+        The file stores a plain dict with the audio tokens moved to CPU, so
+        it can be loaded with ``torch.load(weights_only=True)`` (the default
+        since torch 2.6) and is portable across devices.
+
+        Args:
+            path: Destination file path (e.g. ``"my_voice.pt"``).
+        """
+        torch.save(
+            {
+                "format_version": _VOICE_CLONE_PROMPT_FORMAT_VERSION,
+                "ref_audio_tokens": self.ref_audio_tokens.detach().cpu(),
+                "ref_text": self.ref_text,
+                "ref_rms": float(self.ref_rms),
+            },
+            path,
+        )
+
+    @classmethod
+    def load(cls, path: str, map_location: str = "cpu") -> "VoiceClonePrompt":
+        """Load a prompt saved with :meth:`save`.
+
+        The returned prompt can be passed directly to
+        :meth:`OmniVoice.generate`; the audio tokens are moved to the model
+        device automatically during generation, so no manual ``.to(device)``
+        is needed.
+
+        Args:
+            path: File path previously written by :meth:`save`.
+            map_location: Device to load the audio tokens onto.
+        Returns:
+            The restored :class:`VoiceClonePrompt`.
+        """
+        data = torch.load(path, map_location=map_location, weights_only=True)
+        version = data.get("format_version")
+        if version != _VOICE_CLONE_PROMPT_FORMAT_VERSION:
+            raise ValueError(f"Unsupported VoiceClonePrompt format version: {version}")
+        return cls(
+            ref_audio_tokens=data["ref_audio_tokens"],
+            ref_text=data["ref_text"],
+            ref_rms=data["ref_rms"],
+        )
+
 
 @dataclass
 class OmniVoiceGenerationConfig:
@@ -126,15 +204,17 @@ class OmniVoiceGenerationConfig:
     """
     num_step: int = 32              # 迭代解码总步数 (类似 diffusion 的 T)
     guidance_scale: float = 2.0     # Classifier-Free Guidance 强度, 0 表示关闭
-    t_shift: float = 0.1            # 时间步采样的偏移, 越小越偏向 "先解低 SNR/噪声大" 的位置
+    t_shift: float = 0.1            # 调整填充进度；小于 1 时前期填少、后期填多，不直接选择位置
     layer_penalty_factor: float = 5.0   # codebook 层惩罚: 让靠前(语义)的 codebook 先被解出
     position_temperature: float = 5.0   # 控制本轮优先填哪些 (codebook, 时间) 位置，温度越高随机性越高
     class_temperature: float = 0.0      # 控制每个位置选择哪个 token ID，温度越高随机性越高
     denoise: bool = True                # 是否在序列前插入 <|denoise|> 特殊 token
     preprocess_prompt: bool = True      # 是否对参考音频做去静音/裁剪等预处理
-    postprocess_output: bool = True     # 是否对输出做去静音/淡入淡出
+    postprocess_output: bool = True     # 是否去除输出中的长静音；淡入淡出由 fade_duration 单独控制
     audio_chunk_duration: float = 15.0  # 长文本分块时单段目标时长(秒)
     audio_chunk_threshold: float = 30.0 # 区分长短音频的阈值(秒)
+    pad_duration: float = 0.1          # 输出首尾静音填充时长(秒)
+    fade_duration: float = 0.1         # 输出首尾淡入淡出时长(秒)
 
     # 类方法，通过类来调用，比如 OmniVoiceGenerationConfig.from_dict(kwargs_dict_val)
     # 通过 @classmethod 修饰调用时会自动把类本身作为第一个参数传进去
@@ -253,7 +333,6 @@ class OmniVoiceConfig(PretrainedConfig):
         llm_config: Optional[Union[dict, PretrainedConfig]] = None,
         **kwargs,
     ):
-
         if isinstance(llm_config, dict):
             llm_config = CONFIG_MAPPING[llm_config["model_type"]](**llm_config)
 
@@ -326,6 +405,13 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             # Otherwise, initialize the LLM from the config.
             self.llm = AutoModel.from_config(self.config.llm_config)
 
+        if self.llm.config._attn_implementation == "flex_attention":
+            # 使用上游的混合精度适配，避免 flex attention 在 BF16 训练时退回 FP32。
+            AttentionInterface.register(
+                _AUTOCAST_FLEX_ATTENTION, _autocast_flex_attention
+            )
+            self.llm.set_attn_implementation(_AUTOCAST_FLEX_ATTENTION)
+
         # 把 8 个 codebook 的 embedding 合到一张大表里:
         #   行号 = codebook_id * audio_vocab_size + token_id
         # 这样 8 层 token 共享同一个 nn.Embedding, 又能通过 codebook_layer_offsets
@@ -374,6 +460,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         self.duration_estimator = None
         self.sampling_rate = None
         self._asr_pipe = None
+        self._asr_model_name = "openai/whisper-large-v3-turbo"
+        self._asr_device = None
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, *args, **kwargs):
@@ -409,17 +497,19 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                     (参考音频对应的文本) 时需要, 用 ASR 自动转写参考音频得到 ref_text.
                     仅在 ``train=False`` 时生效.
                 - asr_model_name (str, 默认 ``"openai/whisper-large-v3-turbo"``):
-                    要加载的 Whisper 模型仓库名或本地路径. 仅在 ``load_asr=True`` 时生效.
+                    Whisper 模型仓库名或本地路径，同时用于立即加载和之后按需加载。
+                - asr_device (str, 默认使用主模型设备):
+                    ASR 的单个运行设备，例如 ``"cpu"`` 或 ``"cuda:1"``。
 
                 其余常见透传 kwargs (由父类处理) 例如:
 
                 - torch_dtype: 权重精度, 如 ``torch.bfloat16`` / ``torch.float16``.
                 - device_map: 设备映射, 如 ``"cuda"`` / ``"auto"`` / ``{"": 0}``.
-                - low_cpu_mem_usage: 是否启用低内存加载.
+                - low_cpu_mem_usage: 是否启用低 CPU 内存占用加载.
                 - revision / cache_dir / token: HF Hub 相关参数.
 
         Returns:
-            OmniVoiceForConditionalGeneration:
+            OmniVoice:
                 加载完毕的模型实例. 推理模式下 ``text_tokenizer`` / ``audio_tokenizer`` /
                 ``feature_extractor`` / ``sampling_rate`` / ``duration_estimator`` 已就绪;
                 若 ``load_asr=True``, ``_asr_pipe`` 也已就绪, 可直接调用 ``model.transcribe``.
@@ -434,7 +524,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         Example:
             >>> import torch
-            >>> model = OmniVoiceForConditionalGeneration.from_pretrained(
+            >>> from omnivoice import OmniVoice
+            >>> model = OmniVoice.from_pretrained(
             ...     "k2-fsa/OmniVoice",
             ...     torch_dtype=torch.bfloat16,
             ...     device_map="cuda",
@@ -443,7 +534,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         """
         train_mode = kwargs.pop("train", False)
         load_asr = kwargs.pop("load_asr", False)
-        asr_model_name = kwargs.pop("asr_model_name", "openai/whisper-large-v3-turbo")
+        asr_model_name = kwargs.pop("asr_model_name", None)
+        asr_device = kwargs.pop("asr_device", None)
 
         # Suppress noisy INFO logs from transformers/huggingface_hub during loading
         _prev_disable = logging.root.manager.disable
@@ -487,9 +579,14 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                 # 基于字符权重的时长估计器, 用来推算目标音频应该有多少帧
                 model.duration_estimator = RuleDurationEstimator()
 
+                # 保存 ASR 配置，立即加载和后续按需加载使用相同的模型与设备。
+                if asr_model_name is not None:
+                    model._asr_model_name = asr_model_name
+                if asr_device is not None:
+                    model._asr_device = asr_device
                 # ASR 是可选的, 仅在用户没提供 ref_text 时用它自动转写参考音频
                 if load_asr:
-                    model.load_asr_model(model_name=asr_model_name)
+                    model.load_asr_model()
         finally:
             logging.disable(_prev_disable)
 
@@ -499,31 +596,46 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
     # ASR support (optional, for auto-transcription)
     # -------------------------------------------------------------------
 
-    def load_asr_model(self, model_name: str = "openai/whisper-large-v3-turbo"):
+    def load_asr_model(
+        self, model_name: Optional[str] = None, device: Optional[str] = None
+    ):
         """Load a Whisper ASR model for reference audio transcription.
            加载一个 asr 模型用来识别音频字幕
         Args:
-            model_name: HuggingFace model name or local path for the Whisper model.
+            model_name: HuggingFace model name or local path for the Whisper
+                model. Defaults to the ``asr_model_name`` passed to
+                :meth:`from_pretrained` (``openai/whisper-large-v3-turbo``
+                if unset).
+            device: Device to load the ASR model on (e.g. ``"cuda:1"`` or
+                ``"cpu"``). Defaults to the ``asr_device`` passed to
+                :meth:`from_pretrained`, falling back to the main model's
+                device (its first shard when sharded across GPUs).
         """
         from transformers import pipeline as hf_pipeline
 
+        if model_name is None:
+            model_name = self._asr_model_name
+        if device is None:
+            device = self._asr_device if self._asr_device is not None else self.device
+
         logger.info("Loading ASR model %s ...", model_name)
         asr_dtype = (
-            torch.float16 if str(self.device).startswith(("cuda", "xpu")) else torch.float32
+            torch.float16 if str(device).startswith(("cuda", "xpu")) else torch.float32
         )
 
         model_name = _resolve_model_path(model_name)
 
         # 建好 ASR 流水线并挂到 self._asr_pipe 上, 供 transcribe() 复用:
         #   任务= 自动语音识别(语音→文本); model= 上面解析好的本地/HF 路径;
-        #   dtype= GPU 用 fp16 省显存提速, CPU 用 fp32; device_map= 放到模型所在设备。
+        #   dtype= CUDA/XPU 用 fp16 节省显存, CPU 用 fp32；device 指定单个设备。
+        # 不使用 device_map 传设备字符串，避免 pipeline 自动选择默认加速器（#180）。
         self._asr_pipe = hf_pipeline(
             "automatic-speech-recognition",
             model=model_name,
             dtype=asr_dtype,
-            device_map=self.device,
+            device=device,
         )
-        logger.info("ASR model loaded on %s.", self.device)
+        logger.info("ASR model loaded on %s.", device)
 
     # @torch.inference_mode(): 推理专用装饰器, 关闭梯度记录, 省显存/提速
     # (转写不需要反向传播)
@@ -731,7 +843,6 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         # 这里边的内容先忽略，因为是训练链路
         if labels is not None:
-
             # 6. 逐 token 计算交叉熵。每个位置都是一次 audio token 分类:
             #    模型给出 vocab 概率分布, labels 给出正确 token id。
             # audio_logits.permute(0, 3, 1, 2):
@@ -797,6 +908,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         duration: Union[float, list[Optional[float]], None] = None,
         speed: Union[float, list[Optional[float]], None] = None,
         generation_config: Optional[OmniVoiceGenerationConfig] = None,
+        normalize_text: bool = False,
         **kwargs,
     ) -> list[np.ndarray]:
         """Generate speech audio given text in various modes. 支持三种方式生成音频
@@ -817,7 +929,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             ref_text: Optional reference text for voice cloning mode.
             ref_audio: Optional reference audio for voice cloning mode.
                 Can be a file path or a (waveform, sample_rate) tuple.
-            voice_clone_prompt: Reusable prompt from :meth:`create_voice_clone_prompt`.
+            voice_clone_prompt: Reusable prompt from :meth:`create_voice_clone_prompt`
+                or :meth:`VoiceClonePrompt.load`.
                 If provided, it overrides ``ref_text`` and ``ref_audio``.
             instruct: Style instruction for voice design mode.
             duration: Fixed output duration in seconds. If a single float,
@@ -827,6 +940,15 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             speed: Speaking speed factor. ``> 1.0`` for faster, ``< 1.0`` for
                 slower. If a list, one value per item. ``None`` (default) uses
                 the model's default estimation.
+            normalize_text: If ``True``, run text normalization on the target
+                text before synthesis (numbers, dates, currency, etc. are
+                converted to their spoken form, e.g. ``"2345"`` ->
+                ``"twenty three forty five"``). Default ``False`` (paper
+                reproducibility is unaffected). Chinese/English require the
+                optional ``omnivoice[tn]`` dependency (WeTextProcessing); other
+                languages use ``num2words`` for bare integers when installed.
+                Inline control syntax (``[laughter]``, ``[B EY1 S]``, pinyin
+                tone markers) is preserved. See :func:`omnivoice.utils.text.normalize_text`.
             generation_config: Explicit config object. If provided, takes
                 precedence over ``**kwargs``.
             **kwargs: Generation config or its fields:
@@ -843,6 +965,10 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
                     this duration (seconds) and generate chunk by chunk.
                 audio_chunk_threshold: Only apply chunking if estimated audio
                     duration exceeds this threshold (seconds).
+                pad_duration: Silence padding duration per side in seconds
+                    (0 to disable).
+                fade_duration: Fade-in/out curve duration in seconds
+                    (0 to disable).
         Returns:
             ``audios`` a list of 1-D ``np.ndarray`` with shape ``(T,)`` and
             sampling rate consistent with the model's audio tokenizer
@@ -888,6 +1014,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             preprocess_prompt=gen_config.preprocess_prompt, # 是否对 参考音频 做去静音/裁剪等预处理
             speed=speed, # 是否加速
             duration=duration, # 是否指定目标长度
+            normalize_text=normalize_text, # 是否将数字、日期等目标文本转换为可朗读形式
         )
 
         # Step 2: 按估计长度切分: 短句直接 batch 解码, 长句改走分段解码以控制显存
@@ -921,7 +1048,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             assert results[i] is not None, f"Result {i} was not generated"
             generated_audios.append(
                 self._decode_and_post_process(
-                    results[i], full_task.ref_rms[i], gen_config  # type: ignore[arg-type]
+                    results[i],
+                    full_task.ref_rms[i],
+                    gen_config,  # type: ignore[arg-type]
                 )
             )
 
@@ -1118,16 +1247,16 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         # _post_process_audio 没有对格式做处理，只是对响度、静音等做处理
         audio_waveform = self._post_process_audio(
             audio_waveform,
-            postprocess_output=gen_config.postprocess_output, # 是否对输出做去静音/淡入淡出
             ref_rms=rms, # 音频响度
+            gen_config=gen_config, # 后处理开关及首尾填充、淡入淡出的时长
         )
         return audio_waveform.squeeze(0) # (1, T_samples) -> (T_samples, )
 
     def _post_process_audio(
         self,
         generated_audio: np.ndarray, # audio tokenizer 解码出的波形
-        postprocess_output: bool, #  # 是否对输出做去静音/淡入淡出
         ref_rms: Union[float, None], # 声音响度
+        gen_config: OmniVoiceGenerationConfig, # 后处理配置
     ) -> np.ndarray:
         """Optionally remove long silences, adjust volume, and add edge padding.
         生成波形 (1, T)
@@ -1138,12 +1267,12 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         Args:
             generated_audio: Numpy array of shape (1, T).
-            postprocess_output: If True, remove long silences and apply fade/pad.
             ref_rms: RMS of the reference audio for volume normalisation.
+            gen_config: Generation config controlling post-processing behaviour.
         Returns:
             Processed numpy array of shape (1, T).
         """
-        if postprocess_output:
+        if gen_config.postprocess_output:
             # 去除长静音
             generated_audio = remove_silence(
                 generated_audio,
@@ -1162,6 +1291,8 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         generated_audio = fade_and_pad_audio(
             generated_audio,
+            pad_duration=gen_config.pad_duration,
+            fade_duration=gen_config.fade_duration,
             sample_rate=self.sampling_rate,
         )
         return generated_audio
@@ -1298,6 +1429,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         preprocess_prompt: bool = True,  # 是否对参考音频、参考文本做预处理
         speed: Union[float, list[Optional[float]], None] = None,  # 语速缩放; >1 更快 <1 更慢; None=模型默认
         duration: Union[float, list[Optional[float]], None] = None,  # 固定输出时长(秒); 覆盖 speed
+        normalize_text: bool = False, # 是否规范化目标文本中的数字、日期等
     ) -> GenerationTask:
         """把用户输入整理成统一的 GenerationTask, 供后续解码直接消费，输入包括：参考文本、参考音频、指令、速度/目标音频时间等
 
@@ -1319,9 +1451,9 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         if isinstance(text, str):
             text_list = [text]
         else:
-            assert isinstance(
-                text, list
-            ), "text should be a string or a list of strings"
+            assert isinstance(text, list), (
+                "text should be a string or a list of strings"
+            )
             text_list = text
         batch_size = len(text_list)
 
@@ -1330,6 +1462,12 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
         language_list = self._ensure_list(language, batch_size)
         # 把用户传入的 language 规范化成模型内部使用的语言代码 (如 "zh")
         language_list = [_resolve_language(lang) for lang in language_list]
+        # 仅规范化目标文本；参考文本必须与参考音频保持一致。
+        # 在估算时长之前处理，使估算依据与实际朗读文本一致。
+        if normalize_text:
+            text_list = [
+                _normalize_text(t, lang) for t, lang in zip(text_list, language_list)
+            ]
         # instruct: voice design 风格指令广播成 batch (下面逐条校验/规范化)
         instruct_list = self._ensure_list(instruct, batch_size)
         for i, s in enumerate(instruct_list):
@@ -1426,12 +1564,12 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
 
         speed_list: Optional[List[float]] = None
         if durations is not None:
-            frame_rate = self.audio_tokenizer.config.frame_rate # 【注意】帧率，指一秒有多少个时间帧，计算方式是 采样率/hop_length，也是1秒钟token数量
+            frame_rate = self.audio_tokenizer.config.frame_rate # 帧率 = 采样率 / hop_length，也是每层 codebook 每秒的 token 数量
             speed_list = []
             for i in range(batch_size):
                 if durations[i] is not None:
                     target_tokens = max(1, int(durations[i] * frame_rate))
-                    # 【重要】计算 tts 速度，速度的定义是 文本预估的token数量/duration指定的时长，比如 应该2秒讲的话、指定1秒讲完、速度就是 2
+                    # 相对语速 = 文本预估帧数 / 指定时长对应的帧数；预估 2 秒、指定 1 秒时语速为 2。
                     est = num_target_tokens_list[i] # 根据目标文本、speed等预估出的token数量
                     # 【重要】根据duration 预估出的token数量
                     num_target_tokens_list[i] = target_tokens
@@ -1453,7 +1591,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             ref_texts=ref_text_list,               # 参考文本 (无则 None)
             ref_audio_tokens=ref_audio_tokens_list,  # 参考音频 token (无则 None)
             ref_rms=ref_rms_list,                  # 参考音频 RMS, 用于输出音量归一
-            speed=speed_list,                      # 速度的定义是 文本预估的token数量/duration指定的时长，比如 应该2秒讲的话、指定1秒讲完、速度就是 2
+            speed=speed_list,                      # 相对语速：预估帧数 / 指定帧数，或用户传入的 speed
         )
 
     def _estimate_target_tokens(self, text, ref_text, num_ref_audio_tokens, speed=1.0):
@@ -1568,9 +1706,7 @@ class OmniVoice(EmbeddingAccessMixin, PreTrainedModel):
             _tokenize_with_nonverbal_tags(wrapped_text, self.text_tokenizer)
             .repeat(self.config.num_audio_codebook, 1)
             .unsqueeze(0)
-        ).to(
-            self.device
-        )  # [1, C, N2]
+        ).to(self.device)  # [1, C, N2]
 
         # 3) Target 段: 全部初始化为 MASK, 由后续迭代解码逐步填充。
         # torch.full(size, fill_value, ...) 会创建指定形状的 Tensor，
